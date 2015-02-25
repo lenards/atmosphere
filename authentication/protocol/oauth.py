@@ -4,6 +4,7 @@ import jwt
 import requests
 
 from caslib import OAuthClient
+from oauth2client.client import OAuth2WebServerFlow
 from threepio import auth_logger as logger
 
 from atmosphere.settings import secrets
@@ -43,6 +44,20 @@ def obtainOAuthToken(username, token_key, token_expire=None):
         auth_user_token.update_expiration(token_expire)
     auth_user_token.save()
     return auth_user_token
+
+
+############################
+# METHODS SPECIFIC TO google:OAuth2Client!
+############################
+def get_oauth2_client():
+    return OAuth2WebServerFlow(
+        settings.OAUTH2_CLIENT_KEY, settings.OAUTH2_CLIENT_SECRET,
+        " ".join(settings.OAUTH2_CLIENT_SCOPES),
+        redirect_uri=settings.OAUTH2_CLIENT_CALLBACK,
+        auth_uri=settings.OAUTH2_CLIENT_AUTH_URI,
+        token_uri=settings.OAUTH2_CLIENT_TOKEN_URI,
+        revoke_uri=settings.OAUTH2_CLIENT_REVOKE_URI,
+        device_uri=settings.OAUTH2_CLIENT_DEVICE_URI)
 
 
 ############################

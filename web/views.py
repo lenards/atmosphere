@@ -28,7 +28,7 @@ from core.models import AtmosphereUser as DjangoUser
 from atmosphere import settings
 
 from authentication.protocol.oauth import \
-    get_cas_oauth_client
+    get_cas_oauth_client, get_oauth2_client
 from authentication.protocol.oauth import obtainOAuthToken
 from authentication import cas_logoutRedirect,\
     saml_loginRedirect, auth_loginRedirect
