@@ -7,6 +7,7 @@ djangorestframework==3.0.4
 django-filter==0.9.1
 djangorestframework-filters
 django-redis-cache==0.13.0
+oauth2client==1.4.6
 redis==2.10.3
 
 celery==3.1.17
