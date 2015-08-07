@@ -10,6 +10,7 @@ from .image_version_boot_script import ImageVersionBootScriptViewSet
 from .image_version_membership import ImageVersionMembershipViewSet
 from .image_version_license import ImageVersionLicenseViewSet
 from .instance import InstanceViewSet
+from .instance_action import InstanceActionViewSet
 from .instance_tag import InstanceTagViewSet
 from .instance_history import InstanceStatusHistoryViewSet
 from .license import LicenseViewSet
