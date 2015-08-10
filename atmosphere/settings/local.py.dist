@@ -134,3 +134,6 @@ if has_logstash and LOGSTASH_HOST:
     fh = logstash.TCPLogstashHandler(LOGSTASH_HOST, LOGSTASH_PORT,
                                      message_type="atmo-deploy", version=1)
     threepio.deploy_logger.addHandler(fh)
+
+#For use with 'saml_settings.py'
+SAML_IDP_URL = "https://localhost:8888"
