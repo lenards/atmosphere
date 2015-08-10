@@ -206,6 +206,8 @@ AUTH_USER_MODEL = 'core.AtmosphereUser'
 AUTH_USER_MODULE = 'core.AtmosphereUser'
 
 AUTHENTICATION_BACKENDS = (
+    # For WSO2-Access
+    #'authentication.authBackends.WSO2LoginBackend',
     # For Token-Access
     'authentication.authBackends.AuthTokenLoginBackend',
     # For Web-Access
@@ -213,8 +215,6 @@ AUTHENTICATION_BACKENDS = (
     'authentication.authBackends.SAMLLoginBackend',
     # For Service-Access
     'authentication.authBackends.LDAPLoginBackend',
-    # For 3rd-party-web Service-Access
-    'authentication.authBackends.OAuthLoginBackend',
 )
 
 # django-cors-headers

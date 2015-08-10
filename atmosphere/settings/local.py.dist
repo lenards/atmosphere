@@ -134,3 +134,14 @@ if has_logstash and LOGSTASH_HOST:
     fh = logstash.TCPLogstashHandler(LOGSTASH_HOST, LOGSTASH_PORT,
                                      message_type="atmo-deploy", version=1)
     threepio.deploy_logger.addHandler(fh)
+
+#For use with 'saml_settings.py'
+SAML_IDP_URL = "https://localhost:8888"
+SAML_ENTITY_ID = "atmomickey"
+SAML_SP_URL = SERVER_URL + "/auth/ws02"
+SAML_KEY_TEXT = SAML_CERT_TEXT = ""
+#with open("/path/to/cert/file.crt","r") as cert:
+#    SAML_CERT_TEXT = base64.b64encode(cert.read())
+#with open("/path/to/key/file.key","r") as keyfile:
+#    SAML_KEY_TEXT = keyfile.read()
+SAML_IDP_CERT = """..."""

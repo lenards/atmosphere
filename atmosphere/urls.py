@@ -32,8 +32,11 @@ urlpatterns = patterns(
 
     # v2 api auth by token
     url(r'^auth$', Authentication.as_view(), name='token-auth'),
-    url(r'^auth/ws02$', 'authentication.protocol.wso2.saml_sso_service',
-        name='wso2-auth'),
+    url(r'^auth/samlsso/metadata$', 'authentication.protocol.saml_sso.saml_sso_sp_metadata',
+        name='saml-sso-sp-metadata'),
+
+    url(r'^auth/ws02$', 'authentication.protocol.saml_sso.saml_sso_process_response',
+        name='saml-sso-idp-auth-cb'),
 
     # File Retrieval:
     # Systemwide
