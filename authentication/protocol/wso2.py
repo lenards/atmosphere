@@ -19,6 +19,17 @@ from onelogin.saml2.utils import \
     OneLogin_Saml2_Utils as Saml2_Utils
 from threepio import auth_logger as logger
 
+
+def saml_sso_process_response(request):
+    return onelogin_saml_sso(request)
+
+
+def get_user_for_token(token):
+    pass
+
+#Based off saml2
+
+
 # Based off of https://github.com/onelogin/python-saml
 
 def prepare_from_django_request(request):
@@ -30,9 +41,6 @@ def prepare_from_django_request(request):
         'get_data': request.GET.copy(),
         'post_data': request.POST.copy()
     }
-
-def get_user_for_token(token):
-    pass
 
 def saml_sso_process_logout_response(request):
     delete_session_callback = lambda: request.session.flush()
@@ -66,7 +74,26 @@ def saml_sso_sp_metadata(request):
         raise Exception(error_str)
     return metadata
 
-def saml_sso_process_response(request):
+def saml_sso_acs_response(request):
+    req = prepare_from_django_request(request)
+    auth = Saml2_Auth(req, SAML_SETTINGS)
+    auth.process_response()
+    errors = auth.get_errors()
+    if not errors:
+        if not auth.is_authenticated():
+            request.session['samlUserdata'] = auth.get_attributes()
+            if 'RelayState' in req['post_data'] and \
+              Saml2_Utils.get_self_url(req) != req['post_data']['RelayState']:
+                auth.redirect_to(req['post_data']['RelayState'])
+            else:
+                for attr_name in request.session['samlUserdata'].keys():
+                    logger.info('%s ==> %s' % (attr_name, '|| '.join(request.session['samlUserdata'][attr_name])))
+        else:
+          logger.info('Not authenticated')
+    else:
+        logger.info("Error when processing SAML Response: %s" % (', '.join(errors)))
+
+def onelogin_saml_sso(request):
     req = prepare_from_django_request(request)  # Process the request and build the request dict that
                                                 # the toolkit expects
 
@@ -74,7 +101,7 @@ def saml_sso_process_response(request):
     query_params = req['query_params']
 
     if 'sso' in query_params:                   # SSO action (SP-SSO initited).  Will send an AuthNRequest to the IdP
-        return HttpResponseHttpResponseRedirect(auth.login())
+        return HttpResponseRedirect(auth.login())
     elif 'sso2' in query_params:                       # Another SSO init action
         return_to = '%sattrs/' % request.host_url      # but set a custom RelayState URL
         return HttpResponseRedirect(auth.login(return_to))
@@ -105,22 +132,3 @@ def saml_sso_process_response(request):
             else:
                 msg = "Sucessfully logged out"
     return HttpResponse("No Action detected based on query-params: %s" % query_params)
-
-def saml_sso_acs_response(request):
-    req = prepare_from_django_request(request)
-    auth = Saml2_Auth(req, SAML_SETTINGS)
-    auth.process_response()
-    errors = auth.get_errors()
-    if not errors:
-        if not auth.is_authenticated():
-            request.session['samlUserdata'] = auth.get_attributes()
-            if 'RelayState' in req['post_data'] and \
-              Saml2_Utils.get_self_url(req) != req['post_data']['RelayState']:
-                auth.redirect_to(req['post_data']['RelayState'])
-            else:
-                for attr_name in request.session['samlUserdata'].keys():
-                    logger.info('%s ==> %s' % (attr_name, '|| '.join(request.session['samlUserdata'][attr_name])))
-        else:
-          logger.info('Not authenticated')
-    else:
-        logger.info("Error when processing SAML Response: %s" % (', '.join(errors)))
