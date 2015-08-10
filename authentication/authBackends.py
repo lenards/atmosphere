@@ -177,11 +177,11 @@ class AuthTokenLoginBackend(ModelBackend):
         return get_or_create_user(valid_user.username, None)
 
 
-class WSO2LoginBackend(ModelBackend):
+class SAML_SSOLoginBackend(ModelBackend):
 
     """
-    AuthenticationBackend for WSO2 SAML2+OAuth authorizations
-    (Authorize user from Third party (wso2) so that client (SP) can retrieve OAuthtoken)
+    AuthenticationBackend for SAML2+OAuth SSO authorizations
+    (Authorize user from Third party (e.g. wso2) so that client (SP) can retrieve OAuthtoken)
     """
 
     def authenticate(self, username=None, password=None, request=None):
@@ -189,14 +189,14 @@ class WSO2LoginBackend(ModelBackend):
         Return user if validated by OAuth.
         Return None otherwise.
         """
-        # logger.debug("WSO2Backend- U:%s P:%s R:%s"
+        # logger.debug("SAML_SSOBackend- U:%s P:%s R:%s"
         #              % (username, password, request))
         # First argument, username, should hold the OAuth Token, no password.
         # if 'username' in username, the authentication is meant for CAS
         # if username and password, the authentication is meant for LDAP
-        logger.debug("[WSO2] Authentication Test")
+        logger.debug("[SAML_SSO] Authentication Test")
         if not request:
-            logger.debug("[WSO2] Authentication skipped - No Request.")
+            logger.debug("[SAML_SSO] Authentication skipped - No Request.")
             return None
         auth = request.META.get('HTTP_AUTHORIZATION', '').split()
         if len(auth) == 2 and auth[0].lower() == "Token":
@@ -204,16 +204,16 @@ class WSO2LoginBackend(ModelBackend):
         else:
             oauth_token = None
         if not oauth_token:
-            logger.debug("[WSO2] Authentication skipped - No Token.")
+            logger.debug("[SAML_SSO] Authentication skipped - No Token.")
             return None
-        logger.debug("[WSO2] OAuth Token - %s " % oauth_token)
+        logger.debug("[SAML_SSO] OAuth Token - %s " % oauth_token)
 
         valid_username, _ = get_user_for_token(oauth_token)
         if not valid_username:
-            logger.debug("[WSO2] Token %s invalid, no user found."
+            logger.debug("[SAML_SSO] Token %s invalid, no user found."
                          % oauth_token)
             return None
-        logger.debug("[WSO2] Authorized user %s" % valid_username)
+        logger.debug("[SAML_SSO] Authorized user %s" % valid_username)
         attrs = {}
         return get_or_create_user(valid_username, attrs)
 
