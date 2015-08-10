@@ -17,7 +17,7 @@ from onelogin.saml2.settings import \
     OneLogin_Saml2_Settings as Saml2_Settings
 from onelogin.saml2.utils import \
     OneLogin_Saml2_Utils as Saml2_Utils
-from threepio import auth_logger as logger
+from threepio import logger
 
 
 def saml_sso_process_response(request):
@@ -63,16 +63,18 @@ def saml_sso_login_HttpResponseRedirect(request):
     return auth.login() # Build and send AuthNRequest
 
 def saml_sso_sp_metadata(request):
+    req = prepare_from_django_request(request)
+    auth = Saml2_Auth(req, SAML_SETTINGS)
     saml_settings = auth.get_settings()
     metadata = saml_settings.get_sp_metadata()
     errors = saml_settings.validate_metadata(metadata)
     if len(errors) == 0:
-        auth_logger.info(metadata)
+        logger.info(metadata)
     else:
         error_str = "Error(s) found on Metadata: %s"\
                     % (', '.join(errors))
         raise Exception(error_str)
-    return metadata
+    return HttpResponse(metadata)
 
 def saml_sso_acs_response(request):
     req = prepare_from_django_request(request)
