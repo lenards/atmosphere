@@ -11,6 +11,7 @@ from .image_bookmark import ImageBookmarkSerializer
 from .instance_tag import InstanceTagSerializer
 from .instance_history import InstanceStatusHistorySerializer
 from .instance import InstanceSerializer
+from .instance_action import InstanceActionSerializer
 from .license import LicenseSerializer
 from .membership import MembershipSerializer
 from .project import ProjectSerializer
