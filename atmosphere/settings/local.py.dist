@@ -136,12 +136,18 @@ if has_logstash and LOGSTASH_HOST:
     threepio.deploy_logger.addHandler(fh)
 
 #For use with 'saml_settings.py'
+# IDP Settings (wso2, onelogin, etc.)
 SAML_IDP_URL = "https://localhost:8888"
+SAML_IDP_OAUTH_URL = SAML_IDP_URL + "/oauth2/token"
+SAML_IDP_CERT = """..."""
+
+# SP Settings (This machine's credentials)
 SAML_ENTITY_ID = "atmomickey"
 SAML_SP_URL = SERVER_URL + "/auth/ws02"
 SAML_KEY_TEXT = SAML_CERT_TEXT = ""
-#with open("/path/to/cert/file.crt","r") as cert:
-#    SAML_CERT_TEXT = base64.b64encode(cert.read())
-#with open("/path/to/key/file.key","r") as keyfile:
-#    SAML_KEY_TEXT = keyfile.read()
-SAML_IDP_CERT = """..."""
+#Uncomment to add certs/keys.
+# import base64
+# with open("/path/to/cert/file.crt","r") as cert:
+#     SAML_CERT_TEXT = base64.b64encode(cert.read())
+# with open("/path/to/key/file.key","r") as keyfile:
+#     SAML_KEY_TEXT = keyfile.read()

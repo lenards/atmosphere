@@ -6,7 +6,7 @@ import jwt
 import requests
 
 from atmosphere.settings import secrets
-from atmosphere.settings.saml_settings import SAML_SETTINGS
+from atmosphere.settings.saml_settings import SAML_SETTINGS, SAML_IDP_OAUTH_URL, SAML_ENTITY_ID
 from atmosphere import settings
 from authentication import get_or_create_user
 from authentication.models import Token as AuthToken
@@ -90,10 +90,25 @@ def saml_sso_sp_metadata(request):
         raise Exception(error_str)
     return HttpResponse(metadata)
 
+def exchange_assertion_for_token(assertion):
+    if not assertion:
+        raise Exception("Why no assertion?")
+    token_request = {
+            "client-id":SAML_ENTITY_ID,
+            "grant-type":"urn:ietf:params:oauth:grant-type:saml2-bearer",
+            "assertion":assertion
+            }
+    response = requests.post(SAML_IDP_OAUTH_URL, token_request, verify=False)
+    if response.status_code != 200:
+        raise Exception("Failed to generate auth token. Response:%s"
+                        % response.__dict__)
+    json_obj = response.json()
+    return HttpResponse(json_obj)
+
 def saml_sso_acs_response(request):
     req = prepare_django_request(request)
     auth = init_saml_auth(req)
-    auth.process_response()
+    response = auth.process_response()
     errors = auth.get_errors()
     if errors:
         raise Exception(
@@ -101,6 +116,8 @@ def saml_sso_acs_response(request):
     if not auth.is_authenticated():
         logger.info('Not authenticated')
         return HttpResponse("Not Authenticated")
+    raw_saml_response = auth._OneLogin_Saml2_Auth__request_data['post_data']['SAMLResponse']
+    return exchange_assertion_for_token(raw_saml_response)
     #TODO: attributes are empty
     request.session['samlUserdata'] = auth.get_attributes()
     request.session['samlUsername'] = auth.get_nameid()
