@@ -4,6 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import jwt
 import base64
+import urllib
 import requests
 
 from atmosphere.settings import secrets
@@ -94,15 +95,17 @@ def saml_sso_sp_metadata(request):
 def exchange_assertion_for_token(assertion):
     if not assertion:
         raise Exception("Why no assertion?")
+    assertion = base64.b64encode(assertion)
     token_request = {
             "grant_type":"urn:ietf:params:oauth:grant-type:saml2-bearer",
             "assertion": assertion,
             "client_id": SAML_SP_OAUTH_KEY,
             }
+    urlencoded_data = urllib.urlencode(token_request)
     auth_key = base64.b64encode(SAML_SP_OAUTH_KEY)
     headers = {'content-type': 'application/x-www-form-urlencoded'}
     response = requests.post(
-        SAML_IDP_OAUTH_URL, token_request,
+        SAML_IDP_OAUTH_URL, urlencoded_data,
         headers=headers, auth=(auth_key, SAML_SP_OAUTH_SECRET), verify=False)
     if response.status_code != 200:
         raise Exception("Failed to generate auth token. Response:%s"
