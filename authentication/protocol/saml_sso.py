@@ -3,10 +3,11 @@ from django.http import HttpResponseRedirect, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import jwt
+import base64
 import requests
 
 from atmosphere.settings import secrets
-from atmosphere.settings.saml_settings import SAML_SETTINGS, SAML_IDP_OAUTH_URL, SAML_ENTITY_ID
+from atmosphere.settings.saml_settings import SAML_SETTINGS, SAML_IDP_OAUTH_URL, SAML_ENTITY_ID, SAML_SP_OAUTH_KEY, SAML_SP_OAUTH_SECRET
 from atmosphere import settings
 from authentication import get_or_create_user
 from authentication.models import Token as AuthToken
@@ -94,11 +95,12 @@ def exchange_assertion_for_token(assertion):
     if not assertion:
         raise Exception("Why no assertion?")
     token_request = {
-            "client-id":SAML_ENTITY_ID,
-            "grant-type":"urn:ietf:params:oauth:grant-type:saml2-bearer",
-            "assertion":assertion
+            "grant_type":"urn:ietf:params:oauth:grant-type:saml2-bearer",
+            "assertion":assertion,
             }
-    response = requests.post(SAML_IDP_OAUTH_URL, token_request, verify=False)
+    auth_key = base64.b64encode(SAML_SP_OAUTH_KEY)
+    headers = {'content-type': 'application/x-www-form-urlencoded'}
+    response = requests.post(SAML_IDP_OAUTH_URL, token_request, headers=headers, auth=(SAML_SP_OAUTH_KEY, SAML_SP_OAUTH_SECRET), verify=False)
     if response.status_code != 200:
         raise Exception("Failed to generate auth token. Response:%s"
                         % response.__dict__)
