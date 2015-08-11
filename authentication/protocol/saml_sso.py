@@ -6,7 +6,7 @@ import jwt
 import requests
 
 from atmosphere.settings import secrets
-from atmosphere.settings.saml_settings import SAML_SETTINGS, SSO_SAML_SETTINGS
+from atmosphere.settings.saml_settings import SAML_SETTINGS
 from atmosphere import settings
 from authentication import get_or_create_user
 from authentication.models import Token as AuthToken
