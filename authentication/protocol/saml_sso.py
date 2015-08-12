@@ -3,12 +3,13 @@ from django.http import HttpResponseRedirect, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import jwt
+import re
 import base64
 import urllib
 import requests
 
 from atmosphere.settings import secrets
-from atmosphere.settings.saml_settings import SAML_SETTINGS, SAML_IDP_OAUTH_URL, SAML_ENTITY_ID, SAML_SP_URL, SAML_SP_OAUTH_KEY, SAML_SP_OAUTH_SECRET
+from atmosphere.settings.saml_settings import SAML_SETTINGS, SAML_IDP_OAUTH_URL, SAML_ENTITY_ID, SAML_SP_URL, SAML_SP_OAUTH_KEY, SAML_SP_OAUTH_SECRET, SAML_CERT_TEXT_RAW, SAML_KEY_TEXT
 from atmosphere import settings
 from authentication import get_or_create_user
 from authentication.models import Token as AuthToken
@@ -92,24 +93,35 @@ def saml_sso_sp_metadata(request):
         raise Exception(error_str)
     return HttpResponse(metadata)
 
-def exchange_assertion_for_token(assertion):
-    if not assertion:
+def sign_assertion(assertion, key, cert):
+    """
+    TODO: Not sure if this method is required..
+    """
+    return assertion
+
+def exchange_assertion_for_token(encoded_assertion):
+    if not encoded_assertion:
         raise Exception("Why no assertion?")
-    assertion = base64.b64encode(assertion)
+    _assertion = base64.b64decode(encoded_assertion)
+    logger.info(assertion)
+    signed_assertion = sign_assertion(_assertion, SAML_KEY_TEXT, SAML_CERT_TEXT_RAW)
+    logger.info(signed_assertion)
+    assertion = re.sub(r'\s', '', signed_assertion.encode('base64'))
+    logger.info(assertion)
+    signed_assertion = sign_assertion(assertion, SAML_KEY_TEXT, SAML_CERT_TEXT_RAW)
     token_request = {
             "grant_type":"urn:ietf:params:oauth:grant-type:saml2-bearer",
             "assertion": assertion,
             "client_id": SAML_SP_OAUTH_KEY,
+            "scope": "PRODUCTION"
             }
-    urlencoded_data = urllib.urlencode(token_request)
-    auth_key = base64.b64encode(SAML_SP_OAUTH_KEY)
-    headers = {'content-type': 'application/x-www-form-urlencoded'}
+    auth_key = base64.b64encode("%s:%s" % (SAML_SP_OAUTH_KEY, SAML_SP_OAUTH_SECRET))
+    headers = {'content-type': 'application/x-www-form-urlencoded',
+               'Authorization': 'Basic %s' % auth_key}
     response = requests.post(
-        SAML_IDP_OAUTH_URL, urlencoded_data,
-        headers=headers, auth=(auth_key, SAML_SP_OAUTH_SECRET), verify=False)
-    if response.status_code != 200:
-        raise Exception("Failed to generate auth token. Response:%s"
-                        % response.__dict__)
+        SAML_IDP_OAUTH_URL, token_request, headers=headers,
+        verify=False)
+    response.raise_for_status()
     json_obj = response.json()
     return HttpResponse(json_obj)
 
