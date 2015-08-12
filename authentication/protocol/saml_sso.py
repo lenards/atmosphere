@@ -93,22 +93,32 @@ def saml_sso_sp_metadata(request):
         raise Exception(error_str)
     return HttpResponse(metadata)
 
-def sign_assertion(assertion, key, cert):
+def sign_assertion(assertion, key_data, cert):
     """
     TODO: Not sure if this method is required..
     """
-    return assertion
+    import xmlsec
+    from lxml import etree
+    root = etree.fromstring(assertion)
+
+    signature_node = xmlsec.tree.find_node(root, xmlsec.Node.SIGNATURE)
+    key = xmlsec.Key.from_memory(key_data, xmlsec.KeyFormat.PEM)
+
+    sign_context = xmlsec.SignatureContext()
+    sign_context.key = key
+    sign_context.sign(signature_node)
+
+    return etree.tostring(root)
 
 def exchange_assertion_for_token(encoded_assertion):
     if not encoded_assertion:
         raise Exception("Why no assertion?")
     _assertion = base64.b64decode(encoded_assertion)
-    logger.info(assertion)
+    logger.info(_assertion)
     signed_assertion = sign_assertion(_assertion, SAML_KEY_TEXT, SAML_CERT_TEXT_RAW)
     logger.info(signed_assertion)
     assertion = re.sub(r'\s', '', signed_assertion.encode('base64'))
     logger.info(assertion)
-    signed_assertion = sign_assertion(assertion, SAML_KEY_TEXT, SAML_CERT_TEXT_RAW)
     token_request = {
             "grant_type":"urn:ietf:params:oauth:grant-type:saml2-bearer",
             "assertion": assertion,
