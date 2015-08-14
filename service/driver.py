@@ -9,6 +9,7 @@ from rtwo.driver import AWSDriver, EucaDriver, OSDriver
 
 from core.models import AtmosphereUser as User
 from core.models.identity import Identity as CoreIdentity
+from service.exceptions import ServiceException
 
 EucaProvider.set_meta()
 AWSProvider.set_meta()
@@ -51,6 +52,44 @@ def create_libcloud_driver(identity, provider_type=Provider.OPENSTACK):
 
     # Build driver
     return driver_class(**options)
+
+
+def create_driver(identity):
+    user = identity.created_by
+    provider = identity.provider
+
+    # check that the provider is active
+    if not provider.is_active():
+        raise ServiceException(
+            "Provider %s is NOT active. Driver not created."
+            % (provider,))
+
+    # Fetch classes to construct driver
+    service_catalog = ESH_MAP.get(provider.type.name.lower())
+    if service_catalog is None:
+        raise ServiceException(
+            "Provider %s does not have a valid driver"
+            % (provider,))
+
+    provider_class= service_catalog['provider']
+    identity_class = service_catalog['identity']
+    driver_class = service_catalog['driver']
+
+    # NOTE: (REQUIRED) This sets up the required classes
+    # TODO: This call should be removed and fixed in rtwo
+    provider_class.set_meta()
+
+    # Get required data
+    identifier = "%s+%s" % (provider.location, user.username)
+    identity_creds = identity.get_credentials()
+    provider_creds = provider.get_credentials()
+    # TODO: The auth_url key should be updated or rtwo should remap the url
+    provider_creds['ex_force_auth_url'] = provider_creds.pop('auth_url')
+
+    # Build driver
+    _provider = provider_class(identifier=identifier)
+    _identity = identity_class(_provider, user=user.username, **identity_creds)
+    return driver_class(_provider, _identity, **provider_creds)
 
 
 def get_hypervisor_statistics(admin_driver):
