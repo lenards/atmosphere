@@ -35,10 +35,5 @@ class InstanceActionViewSet(viewsets.ViewSet):
         Executes the instance action
         """
         action = serializer.validated_data.get("action")
-        instance = serializer.validated_data.get("instance")
         data = serializer.validated_data.get("data", {})
-        try:
-            action.validate(data)
-            action.execute(instance, data)
-        except:
-            raise
+        action.execute(data)
