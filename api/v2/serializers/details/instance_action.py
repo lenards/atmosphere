@@ -6,12 +6,13 @@ from rest_framework import serializers
 from rest_framework.relations import PrimaryKeyRelatedField
 
 from core import models
+from service.exceptions import ServiceException
 
 class InstanceActionSerializer(serializers.Serializer):
     action = serializers.SlugField(write_only=True)
-    instance = PrimaryKeyRelatedField(queryset=models.Instance.objects.all(),
+    instance = PrimaryKeyRelatedField(queryset=models.Instance.active_instances.all(),
                                       write_only=True)
-    volume = PrimaryKeyRelatedField(queryset=models.Volume.objects.all(),
+    volume = PrimaryKeyRelatedField(queryset=models.Volume.active_volumes.all(),
                                     required=False, write_only=True)
     machine = PrimaryKeyRelatedField(
         queryset=models.ProviderMachine.objects.all(),
@@ -34,6 +35,7 @@ class InstanceActionSerializer(serializers.Serializer):
         action = values.pop("action")
         instance = values.get("instance")
         attrs = {"action": action,
+                 "instance": instance,
                  "identity": instance.created_by_identity}
         try:
             attrs["data"] = action.validate_data(values)
