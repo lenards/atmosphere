@@ -4,30 +4,34 @@ Actions that can be performed by a provider
 """
 import re
 
+from core import models
+from service.driver import create_driver
+from service.exceptions import ServiceException
+
 CLASS_NAME_REGEX = re.compile(
     '((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))')
 
 def create_action_manager():
     catalog = (
-        #actions.AttachVolumeAction,
-        #actions.MountVolumeAction,
-        #actions.UnmountVolumeAction,
-        #actions.DetachAction,
-        #actions.ResizeAction,
-        #actions.ConfirmResizeAction,
-        #actions.RevertSizeAction,
-        #actions.SuspendAction,
-        #actions.DeployAction,
-        #actions.ResumeAction,
-        #actions.StartAction,
-        #actions.StopAction,
-        #actions.ShelveAction,
-        #actions.UnshelveAction,
-        #actions.ShelveOffLoadAction,
-        #actions.RebootAction,
-        actions.ConsoleAction,
-        #actions.ResetNetworkAction,
-        #actions.RebuildAction,
+        #AttachVolumeAction,
+        #ConfirmResizeAction,
+        ConsoleAction,
+        #DeployAction,
+        #DetachAction,
+        #MountVolumeAction,
+        #RebootAction,
+        #RebuildAction,
+        ResetNetworkAction,
+        #ResizeAction,
+        #ResumeAction,
+        #RevertSizeAction,
+        #ShelveAction,
+        #ShelveOffLoadAction,
+        #StartAction,
+        #StopAction,
+        #SuspendAction,
+        #UnmountVolumeAction,
+        #UnshelveAction,
     )
     return ActionManager(actions=catalog)
 
@@ -114,3 +118,17 @@ class ConsoleAction(Action):
         instance = data["instance"]
         _instance = driver.get_instance(instance.provider_alias)
         return driver._connection.ex_vnc_console(_instance)
+
+
+class ResetNetworkAction(Action):
+    name = "Reset Networking"
+    description = "Reset the networking on an instance."
+
+    def validate_data(self, data):
+        self.validate_instance(data.get("instance"))
+        return data
+
+    def perform_action(self, driver, data):
+        instance = data["instance"]
+        _instance = driver.get_instance(instance.provider_alias)
+        return driver.reset_network(_instance)
