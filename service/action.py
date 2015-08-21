@@ -29,7 +29,25 @@ class ActionManager(object):
         return catalog
 
 
-class Action(object):
+class ValidatorMixin(object):
+    def validate_instance(self, instance):
+        if not isinstance(instance, models.Instance):
+            raise ServiceException("Invalid instance")
+
+    def validate_volume(self, volume):
+        if not isinstance(volume, models.Volume):
+            raise ServiceException("Invalid volume")
+
+    def validate_machine(self, machine):
+        if not isinstance(machine, models.ProviderMachine):
+            raise ServiceException("Invalid machine")
+
+    def validate_size(self, size):
+        if not isinstance(size, models.Size):
+            raise ServiceException("Invalid size")
+
+
+class Action(ValidatorMixin):
     name = None
     description = None
 
@@ -38,19 +56,23 @@ class Action(object):
         name = cls.__name__.rstrip("Action")
         return CLASS_NAME_REGEX.sub(r'-\1', name).lower()
 
-    def validate(self, data=None):
-        """
-        Validates the action can be execute or fails
-        """
-        return False
-
     def execute(self, data=None):
         """
         Executes the action
         """
-
-    def is_async(self):
-        return False
+        assert hasattr(self, "validate_data"), (
+            "%s should have attribute `validate_data`."
+            % self.__class__.__name__
+        )
+        assert hasattr(self, "perform_action"), (
+            "%s should have attribute `perform_action`."
+            % self.__class__.__name__
+        )
+        driver = create_driver(identity)
+        validated_data = self.validate_data(data)
+        return self.perform_action(driver, validated_data)
 
     def get_info(self):
-        return {"name": self.name, "description": self.description}
+        return {"action": self.identifier(),
+                "name": self.name,
+                "description": self.description}
