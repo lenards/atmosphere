@@ -43,7 +43,7 @@ class InstanceActionViewSet(viewsets.ViewSet):
         """
         try:
             action = serializer.validated_data.get("action")
-            instance = serializer.validated_data.pop("identity")
+            identity = serializer.validated_data.pop("identity")
             data = serializer.validated_data.get("data", {})
             return action.execute(identity, data=data)
         except Exception as e:

@@ -4,6 +4,7 @@ Actions that can be performed by a provider
 """
 import re
 
+from core.decorators import broken
 from core import models
 from service.driver import create_driver
 from service.exceptions import ServiceException
@@ -21,7 +22,8 @@ def create_action_manager():
         #MountVolumeAction,
         #RebootAction,
         #RebuildAction,
-        ResetNetworkAction,
+        #FIXME: Reset networking is broken
+        #ResetNetworkAction,
         #ResizeAction,
         #ResumeAction,
         #RevertSizeAction,
@@ -120,6 +122,7 @@ class ConsoleAction(Action):
         return driver._connection.ex_vnc_console(_instance)
 
 
+@broken(message="reset-network is not implemented in the driver.")
 class ResetNetworkAction(Action):
     name = "Reset Networking"
     description = "Reset the networking on an instance."
