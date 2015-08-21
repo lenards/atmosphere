@@ -25,7 +25,7 @@ def create_action_manager():
         #actions.UnshelveAction,
         #actions.ShelveOffLoadAction,
         #actions.RebootAction,
-        #actions.ConsoleAction,
+        actions.ConsoleAction,
         #actions.ResetNetworkAction,
         #actions.RebuildAction,
     )
@@ -54,6 +54,7 @@ class ActionManager(object):
 
 
 class ValidatorMixin(object):
+
     def validate_instance(self, instance):
         if not isinstance(instance, models.Instance):
             raise ServiceException("Invalid instance")
@@ -93,10 +94,23 @@ class Action(ValidatorMixin):
             % self.__class__.__name__
         )
         driver = create_driver(identity)
-        validated_data = self.validate_data(data)
-        return self.perform_action(driver, validated_data)
+        return self.perform_action(driver, data)
 
     def get_info(self):
         return {"action": self.identifier(),
                 "name": self.name,
                 "description": self.description}
+
+
+class ConsoleAction(Action):
+    name = "Console"
+    description = "Get the console for the instance."
+
+    def validate_data(self, data):
+        self.validate_instance(data.get("instance"))
+        return data
+
+    def perform_action(self, driver, data):
+        instance = data["instance"]
+        _instance = driver.get_instance(instance.provider_alias)
+        return driver._connection.ex_vnc_console(_instance)
