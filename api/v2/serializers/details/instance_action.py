@@ -32,7 +32,9 @@ class InstanceActionSerializer(serializers.Serializer):
 
     def validate(self, values):
         action = values.pop("action")
-        attrs = {"action": action}
+        instance = values.get("instance")
+        attrs = {"action": action,
+                 "identity": instance.created_by_identity}
         try:
             attrs["data"] = action.validate_data(values)
         except ServiceException as e:

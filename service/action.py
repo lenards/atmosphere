@@ -80,7 +80,7 @@ class Action(ValidatorMixin):
         name = cls.__name__.rstrip("Action")
         return CLASS_NAME_REGEX.sub(r'-\1', name).lower()
 
-    def execute(self, data=None):
+    def execute(self, identity, data=None):
         """
         Executes the action
         """
