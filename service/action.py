@@ -121,6 +121,24 @@ class ConsoleAction(Action):
         _instance = driver.get_instance(instance.provider_alias)
         return driver._connection.ex_vnc_console(_instance)
 
+@broken(message="Rebuild instance is not implemented in the driver")
+class RebuildAction(Action):
+    name = "Rebuild Instance"
+    description = "Rebuild the given instance."
+
+    def validate_data(self, data):
+        self.validate_instance(data.get("instance"))
+        self.validate_machine(data.get("machine"))
+        return data
+
+    def perform_action(self, driver, data):
+        instance = data['instance']
+        machine = data['machine']
+        _instance = driver.get_instance(instance.provider_alias)
+        _machine = driver.get_instance(machine.identifier)
+        #FIXME: implement driver call
+        driver.rebuild_instance(_instance, _machine)
+
 
 @broken(message="reset-network is not implemented in the driver.")
 class ResetNetworkAction(Action):
