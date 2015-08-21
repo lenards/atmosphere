@@ -6,9 +6,9 @@ from rest_framework.response import Response
 
 from api.v2.serializers import InstanceActionSerializer
 from core.models import Instance
-from service.action import ActionManager
+from service.action import create_action_manager
 
-action_manager = ActionManager([])
+action_manager = create_action_manager()
 
 
 class InstanceActionViewSet(viewsets.ViewSet):

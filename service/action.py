@@ -7,6 +7,30 @@ import re
 CLASS_NAME_REGEX = re.compile(
     '((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))')
 
+def create_action_manager():
+    catalog = (
+        #actions.AttachVolumeAction,
+        #actions.MountVolumeAction,
+        #actions.UnmountVolumeAction,
+        #actions.DetachAction,
+        #actions.ResizeAction,
+        #actions.ConfirmResizeAction,
+        #actions.RevertSizeAction,
+        #actions.SuspendAction,
+        #actions.DeployAction,
+        #actions.ResumeAction,
+        #actions.StartAction,
+        #actions.StopAction,
+        #actions.ShelveAction,
+        #actions.UnshelveAction,
+        #actions.ShelveOffLoadAction,
+        #actions.RebootAction,
+        #actions.ConsoleAction,
+        #actions.ResetNetworkAction,
+        #actions.RebuildAction,
+    )
+    return ActionManager(actions=catalog)
+
 
 class ActionManager(object):
     def __init__(self, actions):
