@@ -2,154 +2,39 @@
 """
 Actions that can be performed by a provider
 """
-import re
-
-from core.decorators import broken
 from core import models
 from service.driver import create_driver
 from service.exceptions import ServiceException
-
-CLASS_NAME_REGEX = re.compile(
-    '((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))')
-
-def create_action_manager():
-    catalog = (
-        #AttachVolumeAction,
-        #ConfirmResizeAction,
-        ConsoleAction,
-        #DeployAction,
-        #DetachAction,
-        #MountVolumeAction,
-        #RebootAction,
-        #RebuildAction,
-        #FIXME: Reset networking is broken
-        #ResetNetworkAction,
-        #ResizeAction,
-        #ResumeAction,
-        #RevertSizeAction,
-        #ShelveAction,
-        #ShelveOffLoadAction,
-        #StartAction,
-        #StopAction,
-        #SuspendAction,
-        #UnmountVolumeAction,
-        #UnshelveAction,
-    )
-    return ActionManager(actions=catalog)
+from service import instance, volume
 
 
-class ActionManager(object):
-    def __init__(self, actions):
-        self.actions = {}
-        for action_class in actions:
-            assert issubclass(action_class, Action), (
-                "Expected %s to be of type %s."
-                % (action_class.__name__,
-                   Action.__name__)
-            )
-            self.actions[action_class.identifier()] = action_class()
-
-    def find(self, identifier):
-        return self.actions.get(identifier)
-
-    def get_catalog_info(self):
-        catalog = []
-        for action in self.actions.values():
-            catalog.append(action.get_info())
-        return catalog
+actions = {
+    "console": {
+        "name": "Console",
+        "description": "Get the console for an instance.",
+        "action": instance.get_console
+    },
+    "reset_network": {
+        "name": "Reset Networking",
+        "description": "Reset the networking on an instance.",
+        "action": instance.reset_networking
+    },
+    "rebuild": {
+        "name": "Rebuild Instance",
+        "description": "Rebuild the given instance.",
+        "action": instance.rebuild_instance
+    }
+}
 
 
-class ValidatorMixin(object):
+def get_action(action_name):
+    try:
+        return actions[action_name]
+    except:
+        raise ServiceException("Action %s could not be found." % action_name)
 
-    def validate_instance(self, instance):
-        if not isinstance(instance, models.Instance):
-            raise ServiceException("Invalid instance")
-
-    def validate_volume(self, volume):
-        if not isinstance(volume, models.Volume):
-            raise ServiceException("Invalid volume")
-
-    def validate_machine(self, machine):
-        if not isinstance(machine, models.ProviderMachine):
-            raise ServiceException("Invalid machine")
-
-    def validate_size(self, size):
-        if not isinstance(size, models.Size):
-            raise ServiceException("Invalid size")
-
-
-class Action(ValidatorMixin):
-    name = None
-    description = None
-
-    @classmethod
-    def identifier(cls):
-        name = cls.__name__.rstrip("Action")
-        return CLASS_NAME_REGEX.sub(r'-\1', name).lower()
-
-    def execute(self, identity, data=None):
-        """
-        Executes the action
-        """
-        assert hasattr(self, "validate_data"), (
-            "%s should have attribute `validate_data`."
-            % self.__class__.__name__
-        )
-        assert hasattr(self, "perform_action"), (
-            "%s should have attribute `perform_action`."
-            % self.__class__.__name__
-        )
-        driver = create_driver(identity)
-        return self.perform_action(driver, data)
-
-    def get_info(self):
-        return {"action": self.identifier(),
-                "name": self.name,
-                "description": self.description}
-
-
-class ConsoleAction(Action):
-    name = "Console"
-    description = "Get the console for the instance."
-
-    def validate_data(self, data):
-        self.validate_instance(data.get("instance"))
-        return data
-
-    def perform_action(self, driver, data):
-        instance = data["instance"]
-        _instance = driver.get_instance(instance.provider_alias)
-        return driver._connection.ex_vnc_console(_instance)
-
-@broken(message="Rebuild instance is not implemented in the driver")
-class RebuildAction(Action):
-    name = "Rebuild Instance"
-    description = "Rebuild the given instance."
-
-    def validate_data(self, data):
-        self.validate_instance(data.get("instance"))
-        self.validate_machine(data.get("machine"))
-        return data
-
-    def perform_action(self, driver, data):
-        instance = data['instance']
-        machine = data['machine']
-        _instance = driver.get_instance(instance.provider_alias)
-        _machine = driver.get_instance(machine.identifier)
-        #FIXME: implement driver call
-        driver.rebuild_instance(_instance, _machine)
-
-
-@broken(message="reset-network is not implemented in the driver.")
-class ResetNetworkAction(Action):
-    name = "Reset Networking"
-    description = "Reset the networking on an instance."
-
-    def validate_data(self, data):
-        self.validate_instance(data.get("instance"))
-        return data
-
-    def perform_action(self, driver, data):
-        instance = data["instance"]
-        _instance = driver.get_instance(instance.provider_alias)
-        return driver.reset_network(_instance)
+    "attach_volume": {
+        "name": "Attach volume",
+        "description": "Attach a given volume to an instance",
+        "action": attach_volume
+    }

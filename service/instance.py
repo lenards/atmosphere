@@ -1409,3 +1409,22 @@ def _check_volume_attachment(driver, instance):
             if instance.alias == attachment['serverId']:
                 raise VolumeAttachConflict(instance.alias, vol.alias)
     return False
+
+
+def get_console(driver, instance, data=None):
+    instance = data["instance"]
+    _instance = driver.get_instance(instance.provider_alias)
+    return driver._connection.ex_vnc_console(_instance)
+
+@broken(message="Rebuild instance is not implemented in the driver.",
+        logger=logger)
+def rebuild_instance(driver, instance, machine):
+    _instance = driver.get_instance(instance.provider_alias)
+    _machine = driver.get_instance(machine.identifier)
+    driver.rebuild_instance(_instance, _machine)
+
+@broken(message="Reset network is not implemented in the driver.",
+        logger=logger)
+def reset_network(driver, instance):
+    _instance = driver.get_instance(instance.provider_alias)
+    return driver.reset_network(_instance)
