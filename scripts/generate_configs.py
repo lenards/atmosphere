@@ -33,8 +33,10 @@ config_files = {
                       'extras/nginx/locations/jenkins.conf'),
     'nginx-lb': ('extras/nginx/locations/lb.conf.j2',
                  'extras/nginx/locations/lb.conf'),
+    'nginx-shellinabox': ('extras/nginx/locations/shellinabox.conf.j2',
+                          'extras/nginx/locations/shellinabox.conf'),
     'secrets.py': ('atmosphere/settings/secrets.py.j2',
-                   'atmosphere/settings/secrets.py')} 
+                   'atmosphere/settings/secrets.py')}
 
 
 projectpath = os.path.abspath(
