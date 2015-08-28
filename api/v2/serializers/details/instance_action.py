@@ -6,12 +6,14 @@ from rest_framework import serializers
 from rest_framework.relations import PrimaryKeyRelatedField
 
 from core import models
+from service.action import get_action
 from service.exceptions import ServiceException
 
-class InstanceActionSerializer(serializers.Serializer):
-    action = serializers.SlugField(write_only=True)
-    instance = PrimaryKeyRelatedField(queryset=models.Instance.active_instances.all(),
-                                      write_only=True)
+
+class InstanceActionSerializer(serializers.ModelSerializer):
+    action = PrimaryKeyRelatedField(
+        queryset=models.InstanceAction.objects.all(),
+        required=False, write_only=True)
     volume = PrimaryKeyRelatedField(queryset=models.Volume.active_volumes.all(),
                                     required=False, write_only=True)
     machine = PrimaryKeyRelatedField(
@@ -21,27 +23,25 @@ class InstanceActionSerializer(serializers.Serializer):
                                   required=False, write_only=True)
 
     def __init__(self, *args, **kwargs):
-        self.actions = kwargs.pop("actions")
+        self.provider = kwargs.pop("provider", None)
         super(InstanceActionSerializer, self).__init__(*args, **kwargs)
 
-    def validate_action(self, value):
-        action = self.actions.get(value)
-        if action is None:
+    def validate(self, attrs):
+        action = attrs.get("action")
+        if not action.enabled_for_provider(self.provider):
             raise serializers.ValidationError(
-                "The action `%s` does not exist." % value)
-        return action
-
-    def validate(self, values):
-        action = values.pop("action")
-        instance = values.get("instance")
-        attrs = {"action": action,
-                 "instance": instance,
-                 "identity": instance.created_by_identity}
-        try:
-            attrs["data"] = action.validate_data(values)
-        except ServiceException as e:
-            raise serializers.ValidationError(e.message)
+                "The action `%s` is not enabled for the provider %s."
+                % (action.name, instance.provider))
         return attrs
 
     class Meta:
-        fields = ("action", "instance")
+        model = models.InstanceAction
+        fields = (
+            "id",
+            "name",
+            "description",
+            "action",
+            "volume",
+            "machine",
+            "size"
+        )

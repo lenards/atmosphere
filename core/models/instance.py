@@ -130,6 +130,17 @@ class InstanceAction(models.Model):
     name = models.CharField(max_length=256)
     description = models.TextField(blank=True, null=True)
 
+    @property
+    def identifier(self):
+        """
+        Identifier used to look up the action
+        """
+        return "_".join(self.name.lower().split())
+
+    def enabled_for_provider(self, provider):
+        actions = self.providerinstanceaction_set.filter(provider=provider)
+        return actions.filter(instance_action=self, enabled=True).exists()
+
     def __unicode__(self):
         return "%s" %\
             (self.name,)
