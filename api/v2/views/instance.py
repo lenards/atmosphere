@@ -1,12 +1,15 @@
+from rest_framework.response import Response
+from rest_framework.decorators import detail_route
+
 from core.models import Instance
-from api.v2.serializers.details import InstanceSerializer
+from core.models.provider import ProviderInstanceAction
+from api.v2.serializers.details import InstanceSerializer, InstanceActionSerializer
 from core.query import only_current
 
 from api.v1.views.instance import Instance as V1Instance
 
-from api.v2.serializers.details import InstanceSerializer
 from api.v2.views.base import AuthViewSet
-
+from service.action import get_action
 
 class InstanceViewSet(AuthViewSet):
 
@@ -33,3 +36,25 @@ class InstanceViewSet(AuthViewSet):
                                    instance.provider_alias,
                                    instance.created_by_identity.uuid,
                                    instance.id)
+
+    @detail_route(methods=['get'], url_path="action")
+    def show_actions(self, request, pk=None):
+        instance = self.get_object()
+        provider_actions = ProviderInstanceAction.objects.filter(
+                provider=instance.provider, enabled=True)
+        actions = (pa.instance_action for pa in provider_actions)
+        serializer = InstanceActionSerializer(actions, many=True)
+        return Response(serializer.data)
+
+    @detail_route(methods=['post'], url_path="action")
+    def submit_action(self, request, pk=None):
+        instance = self.get_object()
+        serializer = InstanceActionSerializer(data=self.request.data,
+                                              provider=instance.provider)
+        serializer.is_valid(raise_exception=True)
+        try:
+            action = get_action(serializer.validated_data.pop("action"))
+            driver = create_driver(instance.created_by_identity)
+            return Response(data=action(driver=driver, **data))
+        except Exception as e:
+            raise exceptions.ParseError(detail=e.message)
