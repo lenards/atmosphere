@@ -1426,8 +1426,8 @@ def _reboot(driver, instance, reboot_type="SOFT"):
     return driver._reboot_node(_instance, reboot_type=reboot_type)
 
 
+# TODO: This call is an rtwo specific call
 def get_console(driver, instance, data=None):
-    instance = data["instance"]
     _instance = driver.get_instance(instance.provider_alias)
     return driver._connection.ex_vnc_console(_instance)
 
