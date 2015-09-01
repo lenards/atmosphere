@@ -11,6 +11,11 @@ class ServiceException(Exception):
     Base Service exception class
     """
 
+class InvalidState(ServiceException):
+    """
+    Action being performed on an object that is in an incorrect state.
+    """
+
 
 class ActionNotAllowed(ServiceException):
 

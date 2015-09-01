@@ -1412,10 +1412,31 @@ def _check_volume_attachment(driver, instance):
     return False
 
 
+def _reboot(driver, instance, reboot_type="SOFT"):
+    """
+    Performs a reboot on an instance using the `reboot_type` specified
+    """
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    task_state = _instance.extra.get("task_state")
+
+    if task_state is not None:
+        raise exceptions.InvalidState(
+            "A task with state `%s` is currently in progress." % task_state)
+
+    return driver._reboot_node(_instance, reboot_type=reboot_type)
+
+
 def get_console(driver, instance, data=None):
     instance = data["instance"]
     _instance = driver.get_instance(instance.provider_alias)
     return driver._connection.ex_vnc_console(_instance)
+
+
+def hard_reboot(driver, instance):
+    """
+    Performs a hard reboot
+    """
+    return _reboot(driver, instance, reboot_type="HARD")
 
 
 @broken(message="Rebuild instance is not implemented in the driver.",
@@ -1433,92 +1454,8 @@ def reset_network(driver, instance):
     return driver.reset_network(_instance)
 
 
-#def mount_volume(driver, instance, volume):
-#    return task.mount_volume_task(driver,
-#                                    instance.alias,
-#                                    volume_id, device,
-#                                    mount_location)
-#
-#def unmount_volume(driver, instance, volume):
-#    return task.unmount_volume_task(driver,
-#                                    instance.alias,
-#                                    volume_id, device,
-#                                    mount_location)
-#
-#
-#def detach_volume(driver, instance, volume):
-#    return task.detach_volume_task(driver,
-#                                    instance.alias,
-#                                    volume_id)
-#
-#
-## (resize and redeploy), update status
-#def resize(driver, instance, size):
-#    driver.resize_instance(instance, size)
-#
-#
-#def revert_size(driver, instance):
-#    _instance = driver.get_instance(instance.provider_alias)
-#    return driver.revert_resize_instance(_instance)
-#
-#def deploy(driver, instance):
-#    return redeploy_init(driver, instance, countdown=None)
-#
-### check quota, restore networking, restore ip, fix?, resume, deploy
-#def resume(driver, instance):
-#    check_resources(raise_exception=True)
-#    driver.resume_instance(instance)
-#
-### reclaim ip, suspend, remove network, update, invalidate
-#def suspend(driver, instance):
-#    driver.suspend_instance(instance)
-#    return suspend_instance(driver, instance,
-#                            provider_uuid, identity_uuid,
-#                            user)
-#
-#
-# restore network, aquire ip, (repair instance?), launch, run deploy
-# update stauts, invalidate
-#def start(driver, instance):
-#    _instance = driver.get_instance(instance.provider_alias)
-#    driver.start_instance(instance)
-
-
-#@invalidate_cache
-#@remove_network
-#@update_instance
-#def stop(driver, instance):
-#    _instance = driver.get_instance(instance.provider_alias)
-#    driver.stop_instance(_instance)
-#    # NOTE: This is a celery task
-#    remove_network(self.driver, identity_uuid)
-#
-### up status log, reclaim ip, remove network, update status, invalidate cache
-#def shelve(self, instance):
-#    _instance = self.driver.get_instance(instance.provider_alias)
-#    self.driver._connection.ex_shelve_instance(instance)
-#
-### check quota, update status, check capacity, restore network,
-## restore_ip_chain, (wait for unshelve?), redeploy
-#def unshelve(driver, instance):
-#    _instance = driver.get_instance(instance.provider_alias)
-#    driver._connection.ex_unshelve_instance(_instance)
-#
-#def shelve_offload(driver, instance):
-#    _instance = driver.get_instance(instance.provider_alias)
-#    driver._connection.ex_shelve_offload_instance(_instance)
-#
-#def attach_volume(driver, instance, volume, mount=None, device=None):
-#    volume_id = action_params.get('volume_id')
-#    mount_location = action_params.get('mount_location', None)
-#    device = action_params.get('device', None)
-#    return task.attach_volume_task(driver,
-#                                   instance.provider_alias,
-#                                   volume.provider_alias,
-#                                   device,
-#                                   mount_location)
-
-##TODO: move updating instance outside of instance
-#def confirm_resize(driver, instance):
-#    self.driver.confirm_resize_instance(instance)
-#
+def soft_reboot(driver, instance):
+    """
+    Performs a soft reboot
+    """
+    return _reboot(driver, instance, reboot_type="SOFT")
