@@ -1509,6 +1509,12 @@ def reset_network(driver, instance):
 
 def resize(driver, instance, size):
     _instance = driver.ex_get_node_details(instance.provider_alias)
+    size_alias = _instance.extra.get("flavorId")
+
+    #: check the instance size with the given size
+    if size.alias == size_alias:
+        raise Exception("The instance is already using the given size.")
+
     _size = driver.ex_get_size(size.alias)
     task_state = _instance.extra.get("task_state")
 
