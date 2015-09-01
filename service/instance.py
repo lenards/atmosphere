@@ -1530,6 +1530,7 @@ def resize(driver, instance, size):
 
     return driver.ex_resize(_instance, _size)
 
+
 # check quota, restore networking, restore ip, fix?, resume, deploy
 def resume(driver, instance):
     _instance = driver.ex_get_node_details(instance.provider_alias)
@@ -1546,6 +1547,23 @@ def resume(driver, instance):
             "A task with state `%s` is currently in progress." % task_state)
 
     return driver.ex_resume_node(_instance)
+
+
+def revert_resize(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    task_state = _instance.extra.get("task_state")
+
+    #: check vm_state
+    if _instance.extra.get("vm_state") != "resized":
+        raise exceptions.InvalidState(
+            "The instance size can only be reverted when resized.")
+
+    #: check if a task is running
+    if task_state is not None:
+        raise exceptions.InvalidState(
+            "A task with state `%s` is currently in progress." % task_state)
+
+    return driver.ex_revert_resize(_instance)
 
 
 def soft_reboot(driver, instance):
