@@ -44,8 +44,7 @@ RESIZE_TASK_STATES = frozenset(
     ["resize_prep", "resize_migrating", "resize_migrated", "resize_finish"])
 
 VALID_INSTANCE_STATES = frozenset(
-    ["active", "paused", "shutoff", "verify_resize", "soft_deleted"])
-
+    ["active", "paused", "stopped", "resized", "soft_deleted"])
 
 def _get_size(esh_driver, esh_instance):
     if isinstance(esh_instance.size, MockSize):
@@ -1462,6 +1461,22 @@ def confirm_resize_v2(driver, instance):
     else:
         raise exceptions.InvalidState(
             "The instance must be resized before confirming a resize.")
+
+
+def detach_volume(driver, instance, volume):
+    _volume = driver.ex_get_volume(volume.identifier)
+
+    #: check if the volume is already detached
+    if _volume.extra.get("state") != "in-use":
+        raise AttachmentError("The volume is currently not attached.")
+
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+
+    if _instance.extra.get("vm_state") not in VALID_INSTANCE_STATES:
+        raise exceptions.InvalidState(
+            "The instance given is not in a valid state")
+
+    return _volume.detach()
 
 
 # TODO: This call is an rtwo specific call
