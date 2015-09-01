@@ -1520,9 +1520,26 @@ def resize(driver, instance, size):
     #: check if a task is running
     if task_state is not None:
         raise exceptions.InvalidState(
-            "A task is currently being run %s" % task_state)
+            "A task with state `%s` is currently in progress." % task_state)
 
     return driver.ex_resize(_instance, _size)
+
+# check quota, restore networking, restore ip, fix?, resume, deploy
+def resume(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    task_state = _instance.extra.get("task_state")
+
+    #: check vm_state
+    if _instance.extra.get("vm_state") != "suspended":
+        raise exceptions.InvalidState(
+            "The instance can only be resumed when suspended.")
+
+    #: check if a task is running
+    if task_state is not None:
+        raise exceptions.InvalidState(
+            "A task with state `%s` is currently in progress." % task_state)
+
+    return driver.ex_resume_node(_instance)
 
 
 def soft_reboot(driver, instance):
