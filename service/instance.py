@@ -1530,3 +1530,20 @@ def soft_reboot(driver, instance):
     Performs a soft reboot
     """
     return _reboot(driver, instance, reboot_type="SOFT")
+
+
+# reclaim ip, suspend, remove network, update, invalidate
+def suspend(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    task_state = _instance.extra.get("task_state")
+
+    if _instance.extra.get("vm_state") != "active":
+        raise exceptions.InvalidState(
+            "The instance can only be suspended when active.")
+
+    #: check if a task is running
+    if task_state is not None:
+        raise exceptions.InvalidState(
+            "A task with state `%s` is currently in progress." % task_state)
+
+    return driver.ex_suspend_node(_instance)
