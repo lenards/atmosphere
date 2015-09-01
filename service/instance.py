@@ -40,6 +40,9 @@ from service import exceptions
 from service.accounts.openstack import AccountDriver as OSAccountDriver
 
 
+RESIZE_TASK_STATES = frozenset(
+    ["resize_prep", "resize_migrating", "resize_migrated", "resize_finish"])
+
 VALID_INSTANCE_STATES = frozenset(
     ["active", "paused", "shutoff", "verify_resize", "soft_deleted"])
 
@@ -1444,6 +1447,21 @@ def attach_volume(driver, instance, volume):
         raise exceptions.InvalidState("The instance given is not in a valid state")
 
     return _volume.attach(_instance)
+
+
+def confirm_resize_v2(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    vm_state = _instance.extra.get("vm_state")
+    task_state = _instance.extra.get("task_state")
+
+    if vm_state == "resized":
+        return driver.ex_confirm_resize(_instance)
+    elif task_state in RESIZE_TASK_STATES:
+        raise exceptions.InvalidState(
+            "The instance is currently being resized.")
+    else:
+        raise exceptions.InvalidState(
+            "The instance must be resized before confirming a resize.")
 
 
 # TODO: This call is an rtwo specific call
