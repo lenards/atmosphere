@@ -36,6 +36,7 @@ from service.licensing import _test_license
 from service.exceptions import OverAllocationError, OverQuotaError,\
     SizeNotAvailable, HypervisorCapacityError, SecurityGroupNotCreated,\
     VolumeAttachConflict, UnderThresholdError, ActionNotAllowed
+from service import exceptions
 from service.accounts.openstack import AccountDriver as OSAccountDriver
 
 
