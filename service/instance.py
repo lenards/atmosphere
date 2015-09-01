@@ -1497,12 +1497,12 @@ def resize(driver, instance, size):
     _size = driver.ex_get_size(size.alias)
     task_state = _instance.extra.get("task_state")
 
-    #: Check vm_state
+    #: check vm_state
     if _instance.extra.get("vm_state") != "active":
         raise exceptions.InvalidState(
             "The instance can only be resized when active.")
 
-    #: Check if a task is running
+    #: check if a task is running
     if task_state is not None:
         raise exceptions.InvalidState(
             "A task is currently being run %s" % task_state)
