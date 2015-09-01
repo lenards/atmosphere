@@ -1473,6 +1473,24 @@ def reset_network(driver, instance):
     return driver.reset_network(_instance)
 
 
+def resize(driver, instance, size):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    _size = driver.ex_get_size(size.alias)
+    task_state = _instance.extra.get("task_state")
+
+    #: Check vm_state
+    if _instance.extra.get("vm_state") != "active":
+        raise exceptions.InvalidState(
+            "The instance can only be resized when active.")
+
+    #: Check if a task is running
+    if task_state is not None:
+        raise exceptions.InvalidState(
+            "A task is currently being run %s" % task_state)
+
+    return driver.ex_resize(_instance, _size)
+
+
 def soft_reboot(driver, instance):
     """
     Performs a soft reboot
