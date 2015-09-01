@@ -39,6 +39,10 @@ from service.exceptions import OverAllocationError, OverQuotaError,\
 from service.accounts.openstack import AccountDriver as OSAccountDriver
 
 
+VALID_INSTANCE_STATES = frozenset(
+    ["active", "paused", "shutoff", "verify_resize", "soft_deleted"])
+
+
 def _get_size(esh_driver, esh_instance):
     if isinstance(esh_instance.size, MockSize):
         size = esh_driver.get_size(esh_instance.size.id)
@@ -1424,6 +1428,21 @@ def _reboot(driver, instance, reboot_type="SOFT"):
             "A task with state `%s` is currently in progress." % task_state)
 
     return driver._reboot_node(_instance, reboot_type=reboot_type)
+
+
+def attach_volume(driver, instance, volume):
+    _volume = driver.ex_get_volume(volume.identifier)
+
+    # Check if the volume is already attached to the instance
+    if _volume.extra.get("state") != "available":
+        raise AttachmentError("The volume is not currently available for use")
+
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+
+    if _instance.extra.get("vm_state") not in VALID_INSTANCE_STATES:
+        raise exceptions.InvalidState("The instance given is not in a valid state")
+
+    return _volume.attach(_instance)
 
 
 # TODO: This call is an rtwo specific call
