@@ -10,10 +10,11 @@ from core.models import AtmosphereUser as User
 from core.models import Provider
 
 from service.driver import get_account_driver
+from service.base import CloudTask
 
 
-@task(name="remove_empty_networks_for")
-def remove_empty_networks_for(provider_id):
+@task(bind=True, base=CloudTask, name="remove_empty_networks_for")
+def remove_empty_networks_for(self, provider_id):
     provider = Provider.objects.get(id=provider_id)
     os_driver = get_account_driver(provider)
     all_instances = os_driver.admin_driver.list_all_instances()
@@ -42,8 +43,8 @@ def remove_empty_networks_for(provider_id):
                                  "network for %s-%s" % (user, project))
 
 
-@task(name="remove_empty_networks")
-def remove_empty_networks():
+@task(bind=True, base=CloudTask, name="remove_empty_networks")
+def remove_empty_networks(self):
     logger.debug("remove_empty_networks task started at %s." %
                  datetime.now())
     for provider in Provider.get_active(type_name='openstack'):

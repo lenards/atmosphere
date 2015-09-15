@@ -4,20 +4,19 @@ Manage snapshots for volumes and images
 from celery.decorators import task
 from celery.exceptions import SoftTimeLimitExceeded
 
-from threepio import logger
-
 from core.models import Identity
 from core.models.volume import convert_esh_volume
 
+from service.base import CloudTask
 from service.cache import get_cached_driver
 
 
-@task(name="create_volume_snapshot",
+@task(bind=True, base=CloudTask, name="create_volume_snapshot",
       default_retry_delay=15,
       soft_time_limit=15,
       max_retries=3,
       ignore_results=True)
-def create_volume_snapshot(identity_uuid, volume_id, name, description):
+def create_volume_snapshot(self, identity_uuid, volume_id, name, description):
     """
     Create a new volume snapshot
     """
@@ -36,19 +35,19 @@ def create_volume_snapshot(identity_uuid, volume_id, name, description):
         if not snapshot:
             raise Exception("The snapshot could not be created.")
     except SoftTimeLimitExceeded as e:
-        logger.info("Task too long to complete. Task will be retried")
+        self.logger.info("Task too long to complete. Task will be retried")
         create_volume_snapshot.retry(exc=e)
     except Identity.DoesNotExist:
-        logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
+        self.logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
         raise
 
 
-@task(name="delete_volume_snapshot",
+@task(bind=True, base=CloudTask, name="delete_volume_snapshot",
       default_retry_delay=15,
       soft_time_limit=15,
       max_retries=3,
       ignore_results=True)
-def delete_volume_snapshot(identity_uuid, snapshot_id):
+def delete_volume_snapshot(self, identity_uuid, snapshot_id):
     """
     Delete an existing volume snapshot
     """
@@ -68,16 +67,16 @@ def delete_volume_snapshot(identity_uuid, snapshot_id):
     except SoftTimeLimitExceeded as e:
         delete_volume_snapshot.retry(exc=e)
     except Identity.DoesNotExist:
-        logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
+        self.logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
         raise
 
 
-@task(name="create_volume_from_image",
+@task(bind=True, base=CloudTask, name="create_volume_from_image",
       default_retry_delay=15,
       soft_time_limit=15,
       max_retries=3,
       ignore_results=True)
-def create_volume_from_image(identity_uuid, image_id, size_id, name,
+def create_volume_from_image(self, identity_uuid, image_id, size_id, name,
                              description, metadata):
     """
     Create a new volume from an image
@@ -108,16 +107,16 @@ def create_volume_from_image(identity_uuid, image_id, size_id, name,
     except SoftTimeLimitExceeded as e:
         create_volume_from_image.retry(exc=e)
     except Identity.DoesNotExist:
-        logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
+        self.logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
         raise
 
 
-@task(name="create_volume_from_snapshot",
+@task(bind=True, base=CloudTask, name="create_volume_from_snapshot",
       default_retry_delay=15,
       soft_time_limit=15,
       max_retries=3,
       ignore_results=True)
-def create_volume_from_snapshot(identity_uuid, snapshot_id, size_id, name,
+def create_volume_from_snapshot(self, identity_uuid, snapshot_id, size_id, name,
                                 description, metadata):
     """
     Create a new volume for the snapshot
@@ -150,5 +149,5 @@ def create_volume_from_snapshot(identity_uuid, snapshot_id, size_id, name,
     except SoftTimeLimitExceeded as e:
         create_volume_from_snapshot.retry(exc=e)
     except Identity.DoesNotExist:
-        logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
+        self.logger.info("An Identity for uuid=%s does not exist.", identity_uuid)
         raise

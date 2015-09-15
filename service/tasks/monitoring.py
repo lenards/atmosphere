@@ -1,3 +1,4 @@
+from celery.contrib import rdb
 from datetime import timedelta
 
 from django.utils import timezone
@@ -10,6 +11,7 @@ from core.models.instance import convert_esh_instance
 from core.models.provider import Provider
 from core.models import Allocation
 
+from service.base import CloudTask
 from service.monitoring import\
     _cleanup_missing_instances,\
     _get_instance_owner_map, \
@@ -51,16 +53,16 @@ def strfdate(datetime_o, fmt=None):
     return datetime_o.strftime(fmt)
 
 
-@task(name="monitor_machines")
-def monitor_machines():
+@task(bind=True, base=CloudTask, name="monitor_machines")
+def monitor_machines(self):
     """
     Update machines by querying the Cloud
     """
     for p in Provider.get_active():
         monitor_machines_for.apply_async(args=[p.id])
 
-@task(name="monitor_machines_for")
-def monitor_machines_for(provider_id, print_logs=False):
+@task(bind=True, base=CloudTask, name="monitor_machines_for")
+def monitor_machines_for(self, provider_id, print_logs=False):
     """
     Run the set of tasks related to monitoring machines for a provider.
     Optionally, provide a list of usernames to monitor
@@ -78,7 +80,7 @@ def monitor_machines_for(provider_id, print_logs=False):
         import sys
         consolehandler = logging.StreamHandler(sys.stdout)
         consolehandler.setLevel(logging.DEBUG)
-        logger.addHandler(consolehandler)
+        self.logger.addHandler(consolehandler)
 
     testable_apps = ProviderMachine.objects.filter(instance_source__provider__id=4).values_list('application_version__application', flat=True).distinct()
     apps = Application.objects.filter(id__in=testable_apps)
@@ -89,7 +91,7 @@ def monitor_machines_for(provider_id, print_logs=False):
         # TODO: Add more logic later.
 
     if print_logs:
-        logger.removeHandler(consolehandler)
+        self.logger.removeHandler(consolehandler)
 
 
 def validate_public_app(application, test_provider):
@@ -133,8 +135,8 @@ def _make_app_private(provider_id, accounts, application, cloud_membership):
     application.save()
     logger.info("PRIVATE: %s" % application.name)
 
-@task(name="monitor_instances")
-def monitor_instances():
+@task(bind=True, base=CloudTask, name="monitor_instances")
+def monitor_instances(self):
     """
     Update instances for each active provider.
     """
@@ -142,8 +144,8 @@ def monitor_instances():
         monitor_instances_for.apply_async(args=[p.id])
 
 
-@task(name="monitor_instances_for")
-def monitor_instances_for(provider_id, users=None,
+@task(bind=True, base=CloudTask, name="monitor_instances_for")
+def monitor_instances_for(self, provider_id, users=None,
                           print_logs=False, start_date=None, end_date=None):
     """
     Run the set of tasks related to monitoring instances for a provider.
@@ -182,7 +184,7 @@ def monitor_instances_for(provider_id, users=None,
                         identity.uuid,
                         identity.created_by) for inst in running_instances]
             except Exception as exc:
-                logger.exception(
+                self.logger.exception(
                     "Could not convert running instances for %s" %
                     username)
                 continue
@@ -200,8 +202,8 @@ def monitor_instances_for(provider_id, users=None,
         logger.removeHandler(consolehandler)
 
 
-@task(name="monitor_sizes")
-def monitor_sizes():
+@task(bind=True, base=CloudTask, name="monitor_sizes")
+def monitor_sizes(self):
     """
     Update sizes for each active provider.
     """
@@ -209,8 +211,8 @@ def monitor_sizes():
         monitor_sizes_for.apply_async(args=[p.id])
 
 
-@task(name="monitor_sizes_for")
-def monitor_sizes_for(provider_id, print_logs=False):
+@task(bind=True, base=CloudTask, name="monitor_sizes_for")
+def monitor_sizes_for(self, provider_id, print_logs=False):
     """
     Run the set of tasks related to monitoring sizes for a provider.
     Optionally, provide a list of usernames to monitor
@@ -239,7 +241,7 @@ def monitor_sizes_for(provider_id, print_logs=False):
     now_time = timezone.now()
     needs_end_date = [size for size in db_sizes if size not in seen_sizes]
     for size in needs_end_date:
-        logger.debug("End dating inactive size: %s" % size)
+        self.logger.debug("End dating inactive size: %s" % size)
         size.end_date = now_time
         size.save()
 
@@ -247,8 +249,8 @@ def monitor_sizes_for(provider_id, print_logs=False):
         logger.removeHandler(consolehandler)
 
 
-@task(name="monthly_allocation_reset")
-def monthly_allocation_reset():
+@task(bind=True, base=CloudTask, name="monthly_allocation_reset")
+def monthly_allocation_reset(self):
     """
     This task contains logic related to:
     * Providers whose allocations should be reset on the first of the month
@@ -262,8 +264,8 @@ def monthly_allocation_reset():
             default_allocation.id])
 
 
-@task(name="reset_provider_allocation")
-def reset_provider_allocation(provider_id, default_allocation_id):
+@task(bind=True, base=CloudTask, name="reset_provider_allocation")
+def reset_provider_allocation(self, provider_id, default_allocation_id):
     provider = Provider.objects.get(id=provider_id)
     default_allocation = Allocation.objects.get(id=default_allocation_id)
     exempt_allocation_list = Allocation.objects.filter(threshold=-1)
@@ -283,3 +285,4 @@ def reset_provider_allocation(provider_id, default_allocation_id):
             memberships_reset.append(membership)
             users_reset += 1
     return (users_reset, memberships_reset)
+

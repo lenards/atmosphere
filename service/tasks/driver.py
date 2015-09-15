@@ -3,7 +3,6 @@ Tasks for driver operations.
 NOTE: At this point create options do not have a hard-set requirement for 'CoreIdentity'
 Delete/remove operations do. This should be investigated further..
 """
-from celery.contrib import rdb
 from operator import attrgetter
 import sys
 import re
@@ -23,7 +22,8 @@ from libcloud.compute.types import Provider, NodeState, DeploymentError
 from neutronclient.common.exceptions import BadRequest
 from rtwo.exceptions import NonZeroDeploymentException
 
-from threepio import logger, status_logger
+from threepio import status_logger
+from threepio import logger
 
 from celery import current_app as app
 from atmosphere.settings.local import ATMOSPHERE_PRIVATE_KEYFILE
@@ -36,6 +36,7 @@ from core.models.instance import Instance
 from core.models.identity import Identity
 from core.models.profile import UserProfile
 
+from service.base import CloudTask
 from service.deploy import init, check_process, wrap_script, echo_test_script,\
     deploy_to as ansible_deploy_to
 from service.driver import get_driver, get_esh_driver, get_account_driver
@@ -43,7 +44,6 @@ from service.exceptions import AnsibleDeployException
 from service.instance import update_instance_metadata
 from service.instance import _create_and_attach_port
 from service.networking import _generate_ssh_kwargs
-
 
 def _update_status_log(instance, status_update):
     now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -58,38 +58,39 @@ def _update_status_log(instance, status_update):
                            size_alias, status_update))
 
 
-@task(name="print_debug")
-def print_debug():
+@task(bind=True, base=CloudTask, name="print_debug")
+def print_debug(self):
     log_str = "print_debug task finished at %s." % datetime.now()
     print log_str
-    logger.debug(log_str)
+    self.logger.debug(log_str)
 
 
-@task(name="complete_resize", max_retries=2, default_retry_delay=15)
-def complete_resize(driverCls, provider, identity, instance_alias,
+@task(bind=True, base=CloudTask, name="complete_resize", max_retries=2, default_retry_delay=15)
+def complete_resize(self, driverCls, provider, identity, instance_alias,
                     core_provider_uuid, core_identity_uuid, user):
     """
     Confirm the resize of 'instance_alias'
     """
     from service import instance as instance_service
     try:
-        logger.debug("complete_resize task started at %s." % datetime.now())
+        self.logger.debug("complete_resize task started at %s." % datetime.now())
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_alias)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return False, None
         result = instance_service.confirm_resize(
             driver, instance, core_provider_uuid, core_identity_uuid, user)
-        logger.debug("complete_resize task finished at %s." % datetime.now())
+        self.logger.debug("complete_resize task finished at %s." % datetime.now())
         return True, result
     except Exception as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         complete_resize.retry(exc=exc)
 
 
-@task(name="wait_for_instance", max_retries=250, default_retry_delay=15)
+@task(bind=True, base=CloudTask, name="wait_for_instance", max_retries=250, default_retry_delay=15)
 def wait_for_instance(
+        self,
         instance_alias,
         driverCls,
         provider,
@@ -107,9 +108,9 @@ def wait_for_instance(
     """
     from service import instance as instance_service
     try:
-        logger.debug("wait_for task started at %s." % datetime.now())
+        self.logger.debug("wait_for task started at %s." % datetime.now())
         if app.conf.CELERY_ALWAYS_EAGER:
-            logger.debug("Eager task - DO NOT return until its ready!")
+            self.logger.debug("Eager task - DO NOT return until its ready!")
             return _eager_override(wait_for_instance, _is_instance_ready,
                                    (driverCls, provider, identity,
                                     instance_alias, status_query,
@@ -122,7 +123,7 @@ def wait_for_instance(
     except Exception as exc:
         if "Not Ready" not in str(exc):
             # Ignore 'normal' errors.
-            logger.exception(exc)
+            self.logger.exception(exc)
 
         wait_for_instance.retry(exc=exc)
 
@@ -167,11 +168,13 @@ def _is_instance_ready(driverCls, provider, identity,
     return True
 
 
-@task(name="add_fixed_ip",
+@task(bind=True, base=CloudTask,
+      name="add_fixed_ip",
       ignore_result=True,
       default_retry_delay=15,
       max_retries=15)
 def add_fixed_ip(
+        self,
         driverCls,
         provider,
         identity,
@@ -179,25 +182,25 @@ def add_fixed_ip(
         core_identity_uuid=None):
     from service import instance as instance_service
     try:
-        logger.debug("add_fixed_ip task started at %s." % datetime.now())
+        self.logger.debug("add_fixed_ip task started at %s." % datetime.now())
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return None
         if instance._node.private_ips:
             # TODO: Attempt to rescue
-            logger.info("Instance has fixed IP: %s" % instance_id)
+            self.logger.info("Instance has fixed IP: %s" % instance_id)
             return instance
 
         network_id = instance_service._get_network_id(driver, instance)
         fixed_ip = driver._connection.ex_add_fixed_ip(instance, network_id)
-        logger.debug("add_fixed_ip task finished at %s." % datetime.now())
+        self.logger.debug("add_fixed_ip task finished at %s." % datetime.now())
         return fixed_ip
     except Exception as exc:
         if "Not Ready" not in str(exc):
             # Ignore 'normal' errors.
-            logger.exception(exc)
+            self.logger.exception(exc)
         add_fixed_ip.retry(exc=exc)
 
 
@@ -251,8 +254,8 @@ def _remove_network(
     return True
 
 
-@task(name="clear_empty_ips_for")
-def clear_empty_ips_for(core_identity_uuid, username=None):
+@task(bind=True, base=CloudTask, name="clear_empty_ips_for")
+def clear_empty_ips_for(self, core_identity_uuid, username=None):
     """
     RETURN: (number_ips_removed, delete_network_called)
     """
@@ -264,11 +267,11 @@ def clear_empty_ips_for(core_identity_uuid, username=None):
     if not isinstance(driver, OSDriver):
         return (0, False)
     os_acct_driver = get_account_driver(core_identity.provider)
-    logger.info("Initialized account driver")
+    self.logger.info("Initialized account driver")
     # Get useful info
     creds = core_identity.get_credentials()
     tenant_name = creds['ex_tenant_name']
-    logger.info("Checking Identity %s" % tenant_name)
+    self.logger.info("Checking Identity %s" % tenant_name)
     # Attempt to clean floating IPs
     num_ips_removed = _remove_extra_floating_ips(driver, tenant_name)
     # Test for active/inactive_instances instances
@@ -300,15 +303,15 @@ def clear_empty_ips_for(core_identity_uuid, username=None):
             return (num_ips_removed, True)
         return (num_ips_removed, False)
     else:
-        logger.info("No Network found. Skipping %s" % tenant_name)
+        self.logger.info("No Network found. Skipping %s" % tenant_name)
         return (num_ips_removed, False)
 
 
-@task(name="clear_empty_ips")
-def clear_empty_ips():
-    logger.debug("clear_empty_ips task started at %s." % datetime.now())
+@task(bind=True, base=CloudTask, name="clear_empty_ips")
+def clear_empty_ips(self):
+    self.logger.debug("clear_empty_ips task started at %s." % datetime.now())
     if settings.DEBUG:
-        logger.debug("clear_empty_ips task SKIPPED at %s." % datetime.now())
+        self.logger.debug("clear_empty_ips task SKIPPED at %s." % datetime.now())
         return
     identities = current_openstack_identities()
     for core_identity in identities:
@@ -317,22 +320,22 @@ def clear_empty_ips():
             clear_empty_ips_for.apply_async(args=[core_identity.uuid,
                                                   core_identity.created_by])
         except Exception as exc:
-            logger.exception(exc)
-    logger.debug("clear_empty_ips task finished at %s." % datetime.now())
+            self.logger.exception(exc)
+    self.logger.debug("clear_empty_ips task finished at %s." % datetime.now())
 
 
-@task(name="_send_instance_email",
+@task(bind=True, base=CloudTask, name="_send_instance_email",
       default_retry_delay=10,
       max_retries=2)
-def _send_instance_email(driverCls, provider, identity, instance_id):
+def _send_instance_email(self, driverCls, provider, identity, instance_id):
     try:
-        logger.debug("_send_instance_email task started at %s." %
+        self.logger.debug("_send_instance_email task started at %s." %
                      datetime.now())
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         # Breakout if instance has been deleted at this point
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return
         username = identity.user.username
         profile = UserProfile.objects.get(user__username=username)
@@ -347,19 +350,20 @@ def _send_instance_email(driverCls, provider, identity, instance_id):
                                 created,
                                 username)
         else:
-            logger.debug("User %s elected NOT to receive new instance emails"
+            self.logger.debug("User %s elected NOT to receive new instance emails"
                          % username)
 
-        logger.debug("_send_instance_email task finished at %s." %
+        self.logger.debug("_send_instance_email task finished at %s." %
                      datetime.now())
     except (BaseException, Exception) as exc:
-        logger.warn(exc)
+        self.logger.warn(exc)
         _send_instance_email.retry(exc=exc)
 
 
 # Deploy and Destroy tasks
-@task(name="deploy_failed")
+@task(bind=True, base=CloudTask, name="deploy_failed")
 def deploy_failed(
+        self,
         task_uuid,
         driverCls,
         provider,
@@ -370,9 +374,9 @@ def deploy_failed(
     from core.models.instance import Instance
     from core.email import send_deploy_failed_email
     try:
-        logger.debug("deploy_failed task started at %s." % datetime.now())
+        self.logger.debug("deploy_failed task started at %s." % datetime.now())
         if task_uuid:
-            logger.info("task_uuid=%s" % task_uuid)
+            self.logger.info("task_uuid=%s" % task_uuid)
             result = app.AsyncResult(task_uuid)
             with allow_join_result():
                 exc = result.get(propagate=False)
@@ -381,7 +385,7 @@ def deploy_failed(
             err_str = message
         else:
             err_str = "Deploy failed called externally. No matching AsyncResult"
-        logger.error(err_str)
+        self.logger.error(err_str)
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         update_instance_metadata(driver, instance,
@@ -389,43 +393,43 @@ def deploy_failed(
                                  replace=False)
         # Send deploy email
         core_instance = Instance.objects.get(provider_alias=instance_id)
-        logger.debug("deploy_failed task finished at %s." % datetime.now())
+        self.logger.debug("deploy_failed task finished at %s." % datetime.now())
     except Exception as exc:
-        logger.warn(exc)
+        self.logger.warn(exc)
         deploy_failed.retry(exc=exc)
 
 
-@task(name="deploy_to",
+@task(bind=True, base=CloudTask, name="deploy_to",
       max_retries=2,
       default_retry_delay=128,
       ignore_result=True)
-def deploy_to(driverCls, provider, identity, instance_id, *args, **kwargs):
+def deploy_to(self, driverCls, provider, identity, instance_id, *args, **kwargs):
     try:
-        logger.debug("deploy_to task started at %s." % datetime.now())
+        self.logger.debug("deploy_to task started at %s." % datetime.now())
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         driver.deploy_to(instance, *args, **kwargs)
-        logger.debug("deploy_to task finished at %s." % datetime.now())
+        self.logger.debug("deploy_to task finished at %s." % datetime.now())
     except (BaseException, Exception) as exc:
-        logger.warn(exc)
+        self.logger.warn(exc)
         deploy_to.retry(exc=exc)
 
 
-@task(name="deploy_init_to",
+@task(bind=True, base=CloudTask, name="deploy_init_to",
       default_retry_delay=20,
       ignore_result=True,
       max_retries=3)
-def deploy_init_to(driverCls, provider, identity, instance_id,
+def deploy_init_to(self, driverCls, provider, identity, instance_id,
                    username=None, password=None, redeploy=False, deploy=True,
                    *args, **kwargs):
     try:
-        logger.debug("deploy_init_to task started at %s." % datetime.now())
-        logger.debug("deploy_init_to deploy = %s" % deploy)
-        logger.debug("deploy_init_to type(deploy) = %s" % type(deploy))
+        self.logger.debug("deploy_init_to task started at %s." % datetime.now())
+        self.logger.debug("deploy_init_to deploy = %s" % deploy)
+        self.logger.debug("deploy_init_to type(deploy) = %s" % type(deploy))
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return
         image_metadata = driver._connection\
                                .ex_get_image_metadata(instance.source)
@@ -433,22 +437,22 @@ def deploy_init_to(driverCls, provider, identity, instance_id,
             driverCls, provider, identity, instance,
             username=username, password=password,
             redeploy=redeploy, deploy=deploy)
-        logger.debug(
+        self.logger.debug(
             "Starting deploy chain 'ROUTE' @ Task: %s for: %s." %
             (deploy_chain, instance_id))
         if deploy_chain:
             deploy_chain.apply_async()
         # Can be really useful when testing.
-        logger.debug("deploy_init_to task finished at %s." % datetime.now())
+        self.logger.debug("deploy_init_to task finished at %s." % datetime.now())
     except SystemExit:
-        logger.exception("System Exits are BAD! Find this and get rid of it!")
+        self.logger.exception("System Exits are BAD! Find this and get rid of it!")
         raise Exception("System Exit called")
     except NonZeroDeploymentException as non_zero:
-        logger.error(str(non_zero))
-        logger.error(non_zero.__dict__)
+        self.logger.error(str(non_zero))
+        self.logger.error(non_zero.__dict__)
         raise
     except (BaseException, Exception) as exc:
-        logger.warn(exc)
+        self.logger.warn(exc)
         deploy_init_to.retry(exc=exc)
 
 
@@ -705,30 +709,30 @@ def get_chain_from_active_with_ip(driverCls, provider, identity, instance,
     return start_chain
 
 
-@task(name="deploy_boot_script",
+@task(bind=True, base=CloudTask, name="deploy_boot_script",
       default_retry_delay=32,
       time_limit=30 * 60,  # 30minute hard-set time limit.
       max_retries=10)
-def deploy_boot_script(driverCls, provider, identity, instance_id,
+def deploy_boot_script(self, driverCls, provider, identity, instance_id,
                        script_text, script_name, **celery_task_args):
     # Note: Splitting preperation (Of the MultiScriptDeployment) and execution
     # This makes it easier to output scripts for debugging of users.
     try:
-        logger.debug("deploy_boot_script task started at %s." % datetime.now())
+        self.logger.debug("deploy_boot_script task started at %s." % datetime.now())
         # Check if instance still exists
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return
         # NOTE: This is required to use ssh to connect.
         # TODO: Is this still necessary? What about times when we want to use
         # the adminPass? --Steve
-        logger.info(instance.extra)
+        self.logger.info(instance.extra)
         instance._node.extra['password'] = None
         new_script = wrap_script(script_text, script_name)
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         deploy_boot_script.retry(exc=exc)
 
     try:
@@ -736,11 +740,11 @@ def deploy_boot_script(driverCls, provider, identity, instance_id,
         kwargs.update({'deploy': new_script})
         driver.deploy_to(instance, **kwargs)
         _update_status_log(instance, "Deploy Finished")
-        logger.debug(
+        self.logger.debug(
             "deploy_boot_script task finished at %s." %
             datetime.now())
     except DeploymentError as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         full_script_output = _parse_script_output(new_script)
         if isinstance(exc.value, NonZeroDeploymentException):
             # The deployment was successful, but the return code on one or more
@@ -754,22 +758,22 @@ def deploy_boot_script(driverCls, provider, identity, instance_id,
         # you hit the Exception block below this.
         deploy_boot_script.retry(exc=exc)
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         deploy_boot_script.retry(exc=exc)
 
 
-@task(name="boot_script_failed")
-def boot_script_failed(task_uuid, driverCls, provider, identity, instance_id,
+@task(bind=True, base=CloudTask, name="boot_script_failed")
+def boot_script_failed(self, task_uuid, driverCls, provider, identity, instance_id,
                        **celery_task_args):
     from core.models.instance import Instance
     try:
-        logger.debug("boot_script_failed task started at %s." % datetime.now())
-        logger.info("task_uuid=%s" % task_uuid)
+        self.logger.debug("boot_script_failed task started at %s." % datetime.now())
+        self.logger.info("task_uuid=%s" % task_uuid)
         result = app.AsyncResult(task_uuid)
         with allow_join_result():
             exc = result.get(propagate=False)
         err_str = "BOOT SCRIPT ERROR::%s" % (result.traceback,)
-        logger.error(err_str)
+        self.logger.error(err_str)
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         update_instance_metadata(driver, instance,
@@ -777,11 +781,11 @@ def boot_script_failed(task_uuid, driverCls, provider, identity, instance_id,
                                  replace=False)
         # Send deploy email
         core_instance = Instance.objects.get(provider_alias=instance_id)
-        logger.debug(
+        self.logger.debug(
             "boot_script_failed task finished at %s." %
             datetime.now())
     except (BaseException, Exception) as exc:
-        logger.warn(exc)
+        self.logger.warn(exc)
         boot_script_failed.retry(exc=exc)
 
 
@@ -833,22 +837,22 @@ def _get_boot_script_chain(driverCls, provider, identity, instance_id, remove_st
     return first_task, end_task
 
 
-@task(name="destroy_instance",
+@task(bind=True, base=CloudTask, name="destroy_instance",
       default_retry_delay=15,
       ignore_result=True,
       max_retries=3)
-def destroy_instance(instance_alias, core_identity_uuid):
+def destroy_instance(self, instance_alias, core_identity_uuid):
     from service import instance as instance_service
     from rtwo.driver import OSDriver
     try:
-        logger.debug("destroy_instance task started at %s." % datetime.now())
+        self.logger.debug("destroy_instance task started at %s." % datetime.now())
         node_destroyed = instance_service.destroy_instance(
             core_identity_uuid, instance_alias)
         core_identity = Identity.objects.get(uuid=core_identity_uuid)
         driver = get_esh_driver(core_identity)
         if isinstance(driver, OSDriver):
             # Spawn off the last two tasks
-            logger.debug("OSDriver Logic -- Remove floating ips and check"
+            self.logger.debug("OSDriver Logic -- Remove floating ips and check"
                          " for empty project")
             driverCls = driver.__class__
             provider = driver.provider
@@ -856,11 +860,11 @@ def destroy_instance(instance_alias, core_identity_uuid):
             instances = driver.list_instances()
             active = [driver._is_active_instance(inst) for inst in instances]
             if not active:
-                logger.debug("Driver shows 0 of %s instances are active"
+                self.logger.debug("Driver shows 0 of %s instances are active"
                              % (len(instances),))
                 # For testing ONLY.. Test cases ignore countdown..
                 if app.conf.CELERY_ALWAYS_EAGER:
-                    logger.debug("Eager task waiting 1 minute")
+                    self.logger.debug("Eager task waiting 1 minute")
                     time.sleep(60)
                 clean_task = clean_empty_ips.si(driverCls, provider, identity,
                                                 immutable=True, countdown=5)
@@ -870,36 +874,36 @@ def destroy_instance(instance_alias, core_identity_uuid):
                 clean_task.link(remove_task)
                 clean_task.apply_async()
             else:
-                logger.debug("Driver shows %s of %s instances are active"
+                self.logger.debug("Driver shows %s of %s instances are active"
                              % (len(active), len(instances)))
                 # For testing ONLY.. Test cases ignore countdown..
                 if app.conf.CELERY_ALWAYS_EAGER:
-                    logger.debug("Eager task waiting 15 seconds")
+                    self.logger.debug("Eager task waiting 15 seconds")
                     time.sleep(15)
                 destroy_chain = clean_empty_ips.si(
                     driverCls, provider, identity,
                     immutable=True, countdown=5)
                 destroy_chain.apply_async()
-        logger.debug("destroy_instance task finished at %s." % datetime.now())
+        self.logger.debug("destroy_instance task finished at %s." % datetime.now())
         return node_destroyed
     except Exception as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         destroy_instance.retry(exc=exc)
 
 
-@task(name="deploy_script",
+@task(bind=True, base=CloudTask, name="deploy_script",
       default_retry_delay=32,
       time_limit=30 * 60,  # 30minute hard-set time limit.
       max_retries=10)
-def deploy_script(driverCls, provider, identity, instance_id,
+def deploy_script(self, driverCls, provider, identity, instance_id,
                   script, **celery_task_args):
     try:
-        logger.debug("deploy_script task started at %s." % datetime.now())
+        self.logger.debug("deploy_script task started at %s." % datetime.now())
         # Check if instance still exists
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return
         # TODO: Is this still necessary? What about times when we want to use
         # the adminPass? --Steve
@@ -908,9 +912,9 @@ def deploy_script(driverCls, provider, identity, instance_id,
         kwargs = _generate_ssh_kwargs()
         kwargs.update({'deploy': script})
         driver.deploy_to(instance, **kwargs)
-        logger.debug("deploy_script task finished at %s." % datetime.now())
+        self.logger.debug("deploy_script task finished at %s." % datetime.now())
     except DeploymentError as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         if isinstance(exc.value, NonZeroDeploymentException):
             # The deployment was successful, but the return code on one or more
             # steps is bad. Log the exception and do NOT try again!
@@ -920,7 +924,7 @@ def deploy_script(driverCls, provider, identity, instance_id,
         # you hit the Exception block below this.
         deploy_script.retry(exc=exc)
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         deploy_script.retry(exc=exc)
 
 
@@ -988,13 +992,13 @@ def _deploy_ready_failed_email_test(
         failure_task.apply_async()
 
 
-@task(name="deploy_ready_test",
+@task(bind=True, base=CloudTask, name="deploy_ready_test",
       default_retry_delay=32,
       # 16 second hard-set time limit. (NOTE:TOO LONG? -SG)
       soft_time_limit=16,
       max_retries=225  # Attempt up to two hours
       )
-def deploy_ready_test(driverCls, provider, identity, instance_id,
+def deploy_ready_test(self, driverCls, provider, identity, instance_id,
                       **celery_task_args):
     """
     deploy_ready_test -
@@ -1006,7 +1010,7 @@ def deploy_ready_test(driverCls, provider, identity, instance_id,
     """
     current_count = current.request.retries + 1
     total = deploy_ready_test.max_retries
-    logger.debug(
+    self.logger.debug(
         "deploy_ready_test task %s/%s started at %s." %
         (current_count, total, datetime.now()))
     try:
@@ -1014,7 +1018,7 @@ def deploy_ready_test(driverCls, provider, identity, instance_id,
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             raise Exception("Instance maybe terminated? "
                             "-- Going to keep trying anyway")
 
@@ -1022,53 +1026,53 @@ def deploy_ready_test(driverCls, provider, identity, instance_id,
         kwargs = _generate_ssh_kwargs()
         kwargs.update({'deploy': echo_test})
         driver.deploy_to(instance, **kwargs)
-        logger.debug(
+        self.logger.debug(
             "deploy_ready_test task %s/%s finished at %s." %
             (current_count, total, datetime.now()))
         return True
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         _deploy_ready_failed_email_test(
             driver, instance_id, exc.message, current.request, deploy_ready_test)
         deploy_ready_test.retry(exc=exc)
 
 
-@task(name="_deploy_init_to",
+@task(bind=True, base=CloudTask, name="_deploy_init_to",
       default_retry_delay=124,
       time_limit=32 * 60,  # 32 minute hard-set time limit.
       max_retries=10)
-def _deploy_init_to(driverCls, provider, identity, instance_id,
+def _deploy_init_to(self, driverCls, provider, identity, instance_id,
                     username=None, password=None, token=None, redeploy=False,
                     **celery_task_args):
     # Note: Splitting preperation (Of the MultiScriptDeployment) and execution
     # This makes it easier to output scripts for debugging of users.
     try:
-        logger.debug("_deploy_init_to task started at %s." % datetime.now())
+        self.logger.debug("_deploy_init_to task started at %s." % datetime.now())
         # Check if instance still exists
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_id)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_id)
+            self.logger.debug("Instance has been teminated: %s." % instance_id)
             return
         # NOTE: This is required to use ssh to connect.
         # TODO: Is this still necessary? What about times when we want to use
         # the adminPass? --Steve
-        logger.info(instance.extra)
+        self.logger.info(instance.extra)
         instance._node.extra['password'] = None
 
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         _deploy_init_to.retry(exc=exc)
     try:
         username = identity.user.username
         playbooks = ansible_deploy_to(instance.ip, username, instance_id)
         _update_status_log(instance, "Ansible Finished for %s." % instance.ip)
-        logger.debug("_deploy_init_to task finished at %s." % datetime.now())
+        self.logger.debug("_deploy_init_to task finished at %s." % datetime.now())
     except AnsibleDeployException as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         _deploy_init_to.retry(exc=exc)
     except DeploymentError as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         full_deploy_output = _parse_steps_output(msd)
         if isinstance(exc.value, NonZeroDeploymentException):
             # The deployment was successful, but the return code on one or more
@@ -1082,7 +1086,7 @@ def _deploy_init_to(driverCls, provider, identity, instance_id,
         # you hit the Exception block below this.
         _deploy_init_to.retry(exc=exc)
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         _deploy_init_to.retry(exc=exc)
 
 
@@ -1103,10 +1107,10 @@ def _parse_script_output(script, idx=1, length=1):
     return output
 
 
-@task(name="check_process_task",
+@task(bind=True, base=CloudTask, name="check_process_task",
       max_retries=2,
       default_retry_delay=15)
-def check_process_task(driverCls, provider, identity,
+def check_process_task(self, driverCls, provider, identity,
                        instance_alias, process_name, *args, **kwargs):
     """
     #NOTE: While this looks like a large number (250 ?!) of retries
@@ -1115,7 +1119,7 @@ def check_process_task(driverCls, provider, identity,
     """
     from core.models.instance import Instance
     try:
-        logger.debug("check_process_task started at %s." % datetime.now())
+        self.logger.debug("check_process_task started at %s." % datetime.now())
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_alias)
         if not instance:
@@ -1140,17 +1144,17 @@ def check_process_task(driverCls, provider, identity,
             core_instance.save()
         else:
             return result, script_out
-        logger.debug("check_process_task finished at %s." % datetime.now())
+        self.logger.debug("check_process_task finished at %s." % datetime.now())
     except Instance.DoesNotExist:
-        logger.warn("check_process_task failed: Instance %s no longer exists"
+        self.logger.warn("check_process_task failed: Instance %s no longer exists"
                     % instance_alias)
     except (BaseException, Exception) as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         check_process_task.retry(exc=exc)
 
 
-@task(name="update_metadata", max_retries=250, default_retry_delay=15)
-def update_metadata(driverCls, provider, identity, instance_alias, metadata,
+@task(bind=True, base=CloudTask, name="update_metadata", max_retries=250, default_retry_delay=15)
+def update_metadata(self, driverCls, provider, identity, instance_alias, metadata,
                     replace_metadata=False):
     """
     #NOTE: While this looks like a large number (250 ?!) of retries
@@ -1158,33 +1162,33 @@ def update_metadata(driverCls, provider, identity, instance_alias, metadata,
     # and large, uncached images can have a build time.
     """
     try:
-        logger.debug("update_metadata task started at %s." % datetime.now())
+        self.logger.debug("update_metadata task started at %s." % datetime.now())
         driver = get_driver(driverCls, provider, identity)
         instance = driver.get_instance(instance_alias)
         if not instance:
             return
         return update_instance_metadata(
             driver, instance, data=metadata, replace=replace_metadata)
-        logger.debug("update_metadata task finished at %s." % datetime.now())
+        self.logger.debug("update_metadata task finished at %s." % datetime.now())
     except Exception as exc:
-        logger.exception(exc)
+        self.logger.exception(exc)
         update_metadata.retry(exc=exc)
 
 
 # Floating IP Tasks
-@task(name="add_floating_ip",
+@task(bind=True, base=CloudTask, name="add_floating_ip",
       # Defaults will not be used, see countdown call below
       default_retry_delay=15,
       max_retries=30)
-def add_floating_ip(driverCls, provider, identity,
+def add_floating_ip(self, driverCls, provider, identity,
                     instance_alias, delete_status=True,
                     *args, **kwargs):
     # For testing ONLY.. Test cases ignore countdown..
     if app.conf.CELERY_ALWAYS_EAGER:
-        logger.debug("Eager task waiting 15 seconds")
+        self.logger.debug("Eager task waiting 15 seconds")
         time.sleep(15)
     try:
-        logger.debug("add_floating_ip task started at %s." % datetime.now())
+        self.logger.debug("add_floating_ip task started at %s." % datetime.now())
         # Remove unused floating IPs first, so they can be re-used
         driver = get_driver(driverCls, provider, identity)
         driver._clean_floating_ip()
@@ -1192,18 +1196,18 @@ def add_floating_ip(driverCls, provider, identity,
         # assign if instance doesn't already have an IP addr
         instance = driver.get_instance(instance_alias)
         if not instance:
-            logger.debug("Instance has been teminated: %s." % instance_alias)
+            self.logger.debug("Instance has been teminated: %s." % instance_alias)
             return None
         floating_ips = driver._connection.neutron_list_ips(instance)
         if floating_ips:
             floating_ip = floating_ips[0]["floating_ip_address"]
-            logger.debug(
+            self.logger.debug(
                 "Reusing existing floating_ip_address - %s" %
                 floating_ip)
         else:
             floating_ip = driver._connection.neutron_associate_ip(
                 instance, *args, **kwargs)["floating_ip_address"]
-            logger.debug("Created new floating_ip_address - %s" % floating_ip)
+            self.logger.debug("Created new floating_ip_address - %s" % floating_ip)
         _update_status_log(instance, "Networking Complete")
         # TODO: Implement this as its own task, with the result from
         #'floating_ip' passed in. Add it to the deploy_chain before deploy_to
@@ -1240,27 +1244,27 @@ def add_floating_ip(driverCls, provider, identity,
         update_instance_metadata(
             driver, instance, data=metadata_update, replace=False)
 
-        logger.info("Assigned IP:%s - Hostname:%s" % (floating_ip, hostname))
+        self.logger.info("Assigned IP:%s - Hostname:%s" % (floating_ip, hostname))
         # End
-        logger.debug("add_floating_ip task finished at %s." % datetime.now())
+        self.logger.debug("add_floating_ip task finished at %s." % datetime.now())
         return {"floating_ip": floating_ip, "hostname": hostname}
     except BadRequest as bad_request:
         # NOTE: 'Bad Request' is a good message to 'catch and fix' because its
         # a user-supplied problem.
         # Here we will attempt to 'fix' requests and put the 'add_floating_ip'
         # task back on the queue after we're done.
-        logger.exception("Neutron did not accept request - %s."
+        self.logger.exception("Neutron did not accept request - %s."
             % bad_request.message)
         if 'no fixed ip' in bad_request.message.lower():
             fixed_ip = add_fixed_ip(driverCls, provider, identity,
                                     instance_alias)
             if fixed_ip:
-                logger.debug("Fixed IP %s has been added to Instance %s."
+                self.logger.debug("Fixed IP %s has been added to Instance %s."
                              % (fixed_ip, instance_alias))
         # let the exception bubble-up for a retry..
         raise
     except (BaseException, Exception) as exc:
-        logger.exception("Error occurred while assigning a floating IP")
+        self.logger.exception("Error occurred while assigning a floating IP")
         # Networking can take a LONG time when an instance first launches,
         # it can also be one of those things you 'just miss' by a few seconds..
         # So we will retry 30 times using limited exp.backoff
@@ -1270,55 +1274,56 @@ def add_floating_ip(driverCls, provider, identity,
                               countdown=countdown)
 
 
-@task(name="clean_empty_ips", default_retry_delay=15,
+@task(bind=True, base=CloudTask, name="clean_empty_ips", default_retry_delay=15,
       ignore_result=True, max_retries=6)
-def clean_empty_ips(driverCls, provider, identity, *args, **kwargs):
+def clean_empty_ips(self, driverCls, provider, identity, *args, **kwargs):
     try:
-        logger.debug("remove_floating_ip task started at %s." %
+        self.logger.debug("remove_floating_ip task started at %s." %
                      datetime.now())
         driver = get_driver(driverCls, provider, identity)
         ips_cleaned = driver._clean_floating_ip()
-        logger.debug("remove_floating_ip task finished at %s." %
+        self.logger.debug("remove_floating_ip task finished at %s." %
                      datetime.now())
         return ips_cleaned
     except Exception as exc:
-        logger.warn(exc)
+        self.logger.warn(exc)
         clean_empty_ips.retry(exc=exc)
 
 
 # project Network Tasks
-@task(name="add_os_project_network",
+@task(bind=True, base=CloudTask, name="add_os_project_network",
       default_retry_delay=15,
       ignore_result=True,
       max_retries=6)
-def add_os_project_network(core_identity, *args, **kwargs):
+def add_os_project_network(self, core_identity, *args, **kwargs):
     try:
-        logger.debug("add_os_project_network task started at %s." %
+        self.logger.debug("add_os_project_network task started at %s." %
                      datetime.now())
         account_driver = get_account_driver(core_identity.provider)
         account_driver.create_network(core_identity)
-        logger.debug("add_os_project_network task finished at %s." %
+        self.logger.debug("add_os_project_network task finished at %s." %
                      datetime.now())
     except Exception as exc:
         add_os_project_network.retry(exc=exc)
 
 
-@task(name="remove_empty_network",
+@task(bind=True, base=CloudTask, name="remove_empty_network",
       default_retry_delay=60,
       max_retries=1)
 def remove_empty_network(
+        self,
         driverCls, provider, identity,
         core_identity_uuid,
         *args, **kwargs):
     try:
         # For testing ONLY.. Test cases ignore countdown..
         if app.conf.CELERY_ALWAYS_EAGER:
-            logger.debug("Eager task waiting 1 minute")
+            self.logger.debug("Eager task waiting 1 minute")
             time.sleep(60)
-        logger.debug("remove_empty_network task started at %s." %
+        self.logger.debug("remove_empty_network task started at %s." %
                      datetime.now())
 
-        logger.debug("CoreIdentity(uuid=%s)" % core_identity_uuid)
+        self.logger.debug("CoreIdentity(uuid=%s)" % core_identity_uuid)
         core_identity = Identity.objects.get(uuid=core_identity_uuid)
         driver = get_driver(driverCls, provider, identity)
         instances = driver.list_instances()
@@ -1337,7 +1342,7 @@ def remove_empty_network(
                 False)
             # Check for project network
             os_acct_driver = get_account_driver(core_identity.provider)
-            logger.info("No active instances. Removing project network"
+            self.logger.info("No active instances. Removing project network"
                         "from %s" % core_identity)
             os_acct_driver.delete_network(core_identity,
                                           remove_network=remove_network)
@@ -1346,28 +1351,28 @@ def remove_empty_network(
                 # when instances are suspended we pass remove_network=False
                 os_acct_driver.delete_security_group(core_identity)
             return True
-        logger.debug("remove_empty_network task finished at %s." %
+        self.logger.debug("remove_empty_network task finished at %s." %
                      datetime.now())
         return False
     except Exception as exc:
-        logger.exception("Exception occurred project network is empty")
+        self.logger.exception("Exception occurred project network is empty")
 
 
-@task(name="check_image_membership")
-def check_image_membership():
+@task(bind=True, base=CloudTask, name="check_image_membership")
+def check_image_membership(self):
     try:
-        logger.debug("check_image_membership task started at %s." %
+        self.logger.debug("check_image_membership task started at %s." %
                      datetime.now())
         update_membership()
-        logger.debug("check_image_membership task finished at %s." %
+        self.logger.debug("check_image_membership task finished at %s." %
                      datetime.now())
     except Exception as exc:
-        logger.exception('Error during check_image_membership task')
+        self.logger.exception('Error during check_image_membership task')
         check_image_membership.retry(exc=exc)
 
 
-@task(name="update_membership_for")
-def update_membership_for(provider_uuid):
+@task(bind=True, base=CloudTask, name="update_membership_for")
+def update_membership_for(self, provider_uuid):
     from core.models import Provider, ProviderMachine
     provider = Provider.objects.get(uuid=provider_uuid)
     if not provider.is_active():
@@ -1375,7 +1380,7 @@ def update_membership_for(provider_uuid):
     if provider.type.name.lower() == 'openstack':
         acct_driver = get_account_driver(provider)
     else:
-        logger.warn("Encountered unknown ProviderType:%s, expected"
+        self.logger.warn("Encountered unknown ProviderType:%s, expected"
                     " [Openstack] " % (provider.type.name,))
         return
     images = acct_driver.list_all_images()
@@ -1384,8 +1389,8 @@ def update_membership_for(provider_uuid):
         pm = ProviderMachine.objects.filter(instance_source__identifier=img.id,
                                             instance_source__provider=provider)
         if not pm or len(pm) > 1:
-            logger.debug("pm filter is bad!")
-            logger.debug(pm)
+            self.logger.debug("pm filter is bad!")
+            self.logger.debug(pm)
             return
         else:
             pm = pm[0]
@@ -1401,16 +1406,16 @@ def update_membership_for(provider_uuid):
             members = app_manager.all()
             # if MachineMembership exists, remove it (No longer private)
             if members:
-                logger.info("Application for PM:%s used to be private."
+                self.logger.info("Application for PM:%s used to be private."
                             " %s Users membership has been revoked. "
                             % (img.id, len(members)))
                 changes += len(members)
                 members.delete()
-    logger.info("Total Updates to machine membership:%s" % changes)
+    self.logger.info("Total Updates to machine membership:%s" % changes)
 
 
-@task(name="update_membership")
-def update_membership():
+@task(bind=True, base=CloudTask, name="update_membership")
+def update_membership(self):
     from core.models.provider import Provider as CoreProvider
     from service.accounts.eucalyptus import AccountDriver as EucaAcctDriver
     for provider in CoreProvider.objects.all():
@@ -1431,7 +1436,7 @@ def test_instance_links(alias, uri):
     try:
         vnc_success = test_link(vnc_address)
     except Exception as e:
-        logger.exception("Bad vnc address: %s" % vnc_address)
+        self.logger.exception("Bad vnc address: %s" % vnc_address)
         vnc_success = False
     return {alias: {'vnc': vnc_success}}
 
@@ -1457,3 +1462,13 @@ def update_links(instances):
             continue
     logger.debug("Instances updated: %d" % len(updated))
     return updated
+
+@task(bind=True, base=CloudTask, name="logging_test")
+def logging_test(self):
+    """
+    This task logs things
+    """
+    self.logger.info("Testing task  goes to ELK")
+    self.logger.info("Testing completion goes to ELK")
+    raise Exception("OMFG SKY IS FALLING! RUN FOR THE HILLS!")
+    return 0

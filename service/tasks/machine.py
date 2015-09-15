@@ -17,6 +17,7 @@ from core.models.machine_request import MachineRequest, process_machine_request
 from core.models.export_request import ExportRequest
 from core.models.identity import Identity
 
+from service.base import CloudTask
 from service.driver import get_admin_driver, get_esh_driver, get_account_driver
 from service.deploy import freeze_instance, sync_instance
 from service.tasks.driver import wait_for_instance, destroy_instance
@@ -46,9 +47,9 @@ def _recover_from_error(status_name):
     return False, status_name
 
 
-@task(name='export_request_task', queue="imaging", ignore_result=False)
-def export_request_task(export_request_id):
-    logger.info("export_request_task task started at %s." % timezone.now())
+@task(bind=True, base=CloudTask, name='export_request_task', queue="imaging", ignore_result=False)
+def export_request_task(self, export_request_id):
+    self.logger.info("export_request_task task started at %s." % timezone.now())
     export_request = ExportRequest.objects.get(id=export_request_id)
     export_request.status = 'processing'
     export_request.save()
@@ -57,7 +58,7 @@ def export_request_task(export_request_id):
     default_kwargs = export_request.get_export_args()
     file_loc = export_source(orig_managerCls, orig_creds, default_kwargs)
 
-    logger.info("export_request_task task finished at %s." % timezone.now())
+    self.logger.info("export_request_task task finished at %s." % timezone.now())
     return file_loc
 
 
@@ -193,8 +194,8 @@ def set_machine_request_metadata(machine_request, image_id):
     return machine
 
 
-@task(name='process_export', queue="imaging", ignore_result=False)
-def process_export(export_file_path, export_request_id):
+@task(bind=True, base=CloudTask, name='process_export', queue="imaging", ignore_result=False)
+def process_export(self, export_file_path, export_request_id):
     export_request = ExportRequest.objects.get(id=export_request_id)
     export_request.complete_export(export_file_path)
     # send_image_export_email(export_request.new_machine_owner,
@@ -203,25 +204,25 @@ def process_export(export_file_path, export_request_id):
     return export_file_path
 
 
-@task(name='export_request_error')
-def export_request_error(task_uuid, export_request_id):
-    logger.info("export_request_id=%s" % export_request_id)
-    logger.info("task_uuid=%s" % task_uuid)
+@task(bind=True, base=CloudTask, name='export_request_error')
+def export_request_error(self, task_uuid, export_request_id):
+    self.logger.info("export_request_id=%s" % export_request_id)
+    self.logger.info("task_uuid=%s" % task_uuid)
 
     result = app.AsyncResult(task_uuid)
     with allow_join_result():
         exc = result.get(propagate=False)
     err_str = "ERROR - %r Exception:%r" % (result.result, result.traceback,)
-    logger.error(err_str)
+    self.logger.error(err_str)
     export_request = ExportRequest.objects.get(id=export_request_id)
     export_request.status = err_str
     export_request.save()
 
 
-@task(name='machine_request_error')
-def machine_request_error(task_uuid, machine_request_id):
-    logger.info("machine_request_id=%s" % machine_request_id)
-    logger.info("task_uuid=%s" % task_uuid)
+@task(bind=True, base=CloudTask, name='machine_request_error')
+def machine_request_error(self, task_uuid, machine_request_id):
+    self.logger.info("machine_request_id=%s" % machine_request_id)
+    self.logger.info("task_uuid=%s" % task_uuid)
     machine_request = MachineRequest.objects.get(id=machine_request_id)
 
     result = app.AsyncResult(task_uuid)
@@ -231,15 +232,15 @@ def machine_request_error(task_uuid, machine_request_id):
                                                 result.result,
                                                 result.traceback,
                                                 )
-    logger.error(err_str)
+    self.logger.error(err_str)
     send_image_request_failed_email(machine_request, err_str)
     machine_request = MachineRequest.objects.get(id=machine_request_id)
     machine_request.status = err_str
     machine_request.save()
 
 
-@task(name='imaging_complete', ignore_result=False)
-def imaging_complete(machine_request_id):
+@task(bind=True, base=CloudTask, name='imaging_complete', ignore_result=False)
+def imaging_complete(self, machine_request_id):
     machine_request = MachineRequest.objects.get(id=machine_request_id)
     machine_request.status = 'completed'
     machine_request.save()
@@ -250,8 +251,8 @@ def imaging_complete(machine_request_id):
     return new_image_id
 
 
-@task(name='process_request', ignore_result=False)
-def process_request(new_image_id, machine_request_id):
+@task(bind=True, base=CloudTask, name='process_request', ignore_result=False)
+def process_request(self, new_image_id, machine_request_id):
     """
     First, save the new image id so we can resume in case of failure.
     Then, Invalidate the machine cache to avoid a cache miss.
@@ -268,8 +269,8 @@ def process_request(new_image_id, machine_request_id):
     return new_image_id
 
 
-@task(name='validate_new_image', ignore_result=False)
-def validate_new_image(image_id, machine_request_id):
+@task(bind=True, base=CloudTask, name='validate_new_image', ignore_result=False)
+def validate_new_image(self, image_id, machine_request_id):
     machine_request = MachineRequest.objects.get(id=machine_request_id)
     machine_request.status = 'validating'
     machine_request.save()
@@ -279,11 +280,11 @@ def validate_new_image(image_id, machine_request_id):
     admin_driver = accounts.admin_driver
     admin_ident = machine_request.new_admin_identity()
     if not admin_driver:
-        logger.warn(
+        self.logger.warn(
             "Need admin_driver functionality to auto-validate instance")
         return False
     if not admin_ident:
-        logger.warn(
+        self.logger.warn(
             "Need to know the AccountProvider to auto-validate instance")
         return False
     # Attempt to launch using the admin_driver
@@ -299,8 +300,8 @@ def validate_new_image(image_id, machine_request_id):
     return instance.id
 
 
-@task(name='freeze_instance_task', ignore_result=False) 
-def freeze_instance_task(identity_id, instance_id, **celery_task_args):
+@task(bind=True, base=CloudTask, name='freeze_instance_task', ignore_result=False) 
+def freeze_instance_task(self, identity_id, instance_id, **celery_task_args):
     identity = Identity.objects.get(id=identity_id)
     driver = get_esh_driver(identity)
     kwargs = {}

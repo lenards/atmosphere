@@ -5,7 +5,6 @@ Atmosphere service tasks methods
 from celery import chain
 
 from threepio import logger
-
 import service
 
 from service.exceptions import DeviceBusyException, VolumeMountConflict
@@ -16,6 +15,7 @@ from service.tasks.volume import attach_task, mount_task, check_volume_task
 from service.tasks.volume import detach_task, umount_task,\
     mount_failed
 from service.tasks.volume import update_volume_metadata, update_mount_location
+from service.tasks.driver import logging_test
 
 
 def print_task_chain(start_link):
