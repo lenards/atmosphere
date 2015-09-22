@@ -3,13 +3,15 @@ from rest_framework.decorators import detail_route
 
 from core.models import Instance
 from core.models.provider import ProviderInstanceAction
-from api.v2.serializers.details import InstanceSerializer, InstanceActionSerializer
+from api.v2.serializers.details import InstanceSerializer,\
+    InstanceActionSerializer
 from core.query import only_current
 
 from api.v1.views.instance import Instance as V1Instance
 
 from api.v2.views.base import AuthViewSet
 from service.action import get_action
+
 
 class InstanceViewSet(AuthViewSet):
 
@@ -55,6 +57,7 @@ class InstanceViewSet(AuthViewSet):
         try:
             action = get_action(serializer.validated_data.pop("action"))
             driver = create_driver(instance.created_by_identity)
-            return Response(data=action(driver=driver, **data))
+            return Response(data=action(driver=driver, instance=instance,
+                                        **data))
         except Exception as e:
             raise exceptions.ParseError(detail=e.message)
