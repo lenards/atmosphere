@@ -4,6 +4,7 @@ from core.models import IdentityMembership, Identity, Provider
 
 from service.accounts.openstack import AccountDriver
 from service.cache import get_cached_driver
+from service import exceptions
 
 
 def _get_hard_limits(provider):
@@ -120,3 +121,28 @@ def check_over_quota(username, identity_uuid, esh_size=None, resuming=False):
         return (True, 'suspended instance', 1,
                 cur_suspended, user_quota.suspended_count)
     return (False, '', 0, 0, 0)
+
+
+def check_allocation(user, identity):
+    """
+    Check that the action is within the users allocation
+    """
+    over, time_diff  = check_over_allocation(username, identity_uuid)
+    if over:
+        raise exceptions.OverAllocationError(time_diff)
+
+
+def check_quota(user, identity, size, resuming):
+    """
+    Check that the action is within the users quota
+    """
+    (over,
+     resource,
+     requested,
+     used,
+     allowed) = check_over_quota(username,
+                                 identity_uuid,
+                                 esh_size,
+                                 resuming=resuming)
+    if over:
+        raise exceptions.OverQuotaError(resource, requested, used, allowed)
