@@ -41,10 +41,21 @@ class IdentityViewSet(AuthViewSet):
             only_current_provider(), provider__active=True)
         return identities
 
-    @detail_route(methods=['get'])
-    def changes(self, request, pk=None):
+    def get_changes(self):
         identity = self.get_object()
         membership = IdentityMembership.objects.get(identity=identity)
-        changes = IdentityMembershipHistory.objects.filter(membership=membership)
-        serializer = HistorySerializer(changes, many=True)
+        changes = IdentityMembershipHistory.objects.filter(
+            membership=membership)
+        return changes
+
+    @detail_route(methods=['get'])
+    def changes(self, request, pk=None):
+        queryset = self.get_changes()
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = HistorySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = HistorySerializer(queryset, many=True)
         return Response(serializer.data)
