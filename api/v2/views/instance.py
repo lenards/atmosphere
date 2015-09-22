@@ -1,7 +1,7 @@
 from rest_framework.response import Response
 from rest_framework.decorators import detail_route
 
-from core.models import Instance
+from core.models import Identity, Instance
 from core.models.provider import ProviderInstanceAction
 from api.v2.serializers.details import InstanceSerializer,\
     InstanceActionSerializer
@@ -51,13 +51,15 @@ class InstanceViewSet(AuthViewSet):
     @detail_route(methods=['post'], url_path="action")
     def submit_action(self, request, pk=None):
         instance = self.get_object()
+        identity = Identity.objects.filter(created_by=self.request.user,
+                                           provider=self.provider)
         serializer = InstanceActionSerializer(data=self.request.data,
                                               provider=instance.provider)
         serializer.is_valid(raise_exception=True)
         try:
             action = get_action(serializer.validated_data.pop("action"))
-            driver = create_driver(instance.created_by_identity)
-            return Response(data=action(driver=driver, instance=instance,
-                                        **data))
+            driver = create_driver(identity)
+            success = action(driver=driver, instance=instance, **data)
+            return Response(data={"success": success})
         except Exception as e:
             raise exceptions.ParseError(detail=e.message)
