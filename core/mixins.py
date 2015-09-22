@@ -30,8 +30,7 @@ class ModelChangedMixin(object):
         """
         Returns the model as a dict
         """
-        # Get all the field names that are not relations
-        keys = (f.name for f in self._meta.local_fields if not f.rel)
+        keys = (f.name for f in self._meta.local_fields)
         return {field: getattr(self, field) for field in keys}
 
     def get_dirty_fields(self):

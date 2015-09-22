@@ -12,6 +12,8 @@ from django.contrib.auth.models import Group as DjangoGroup
 
 from threepio import logger
 
+from core.mixins import ModelChangedMixin
+from core.models.abstract import BaseHistory
 from core.models.allocation_strategy import Allocation
 from core.models.application import Application
 from core.models.identity import Identity
@@ -105,7 +107,7 @@ def get_user_group(username):
     return groups[0]
 
 
-class IdentityMembership(models.Model):
+class IdentityMembership(models.Model, ModelChangedMixin):
 
     """
     IdentityMembership allows group 'API access' to use a specific provider
@@ -184,6 +186,7 @@ class IdentityMembership(models.Model):
         """
         return self.member in user.group_set.all()
 
+
     def __unicode__(self):
         return "%s can use identity %s" % (self.member, self.identity)
 
@@ -191,6 +194,40 @@ class IdentityMembership(models.Model):
         db_table = 'identity_membership'
         app_label = 'core'
         unique_together = ('identity', 'member')
+
+    def get_history_changes(self, previous_fields, new_fields):
+        entries = []
+
+        for field, value in new_fields.items():
+            old_value = previous_fields[field]
+            entry = IdentityMembershipHistory(
+                field_name=field, current_value=value, previous_value=old_value,
+                membership=self)
+            entries.append(entry)
+
+        return entries
+
+    def model_changed(self, existing_fields, updated_fields, is_new):
+        if is_new:
+            IdentityMembershipHistory.objects.create(
+                operation=IdentityMembershipHistory.CREATE, field_name="id",
+                current_value=self.pk, model_name=self)
+        else:
+            logger.info(updated_fields)
+            changes = self.get_history_changes(existing_fields, updated_fields)
+            logger.info(changes)
+            IdentityMembershipHistory.objects.bulk_create(changes)
+
+
+class IdentityMembershipHistory(BaseHistory):
+    """
+    Track changes made to the Identity Membership
+    """
+    membership = models.ForeignKey(IdentityMembership, related_name="history")
+
+    class Meta:
+        db_table = "identity_membership_history"
+        app_label = "core"
 
 
 class InstanceMembership(models.Model):
