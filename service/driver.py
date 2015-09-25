@@ -111,14 +111,14 @@ def get_driver(driverCls, provider, identity, **provider_credentials):
     if driver:
         return driver
 
+    
 
 def get_admin_driver(provider):
     """
     Create an admin driver for a given provider.
     """
     try:
-        return get_esh_driver(
-            provider.accountprovider_set.all().first().identity)
+        return get_esh_driver(provider.get_admin_identity())
     except:
         logger.info("Admin driver for provider %s not found." %
                     (provider.location))

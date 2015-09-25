@@ -26,7 +26,7 @@ def main():
         identities = Identity.objects.filter(provider=prov)
         os_accounts = OSAccountDriver(prov)
         for ident in identities:
-            creds = os_accounts.parse_identity(ident)
+            creds = os_accounts.parse_credentials(ident.get_credentials())
             try:
                 (keypair, created) = os_accounts.get_or_create_keypair(
                     creds['username'], creds['password'], creds['tenant_name'],

@@ -139,9 +139,6 @@ class Provider(models.Model):
             return not(self.end_date < now)
         return True
 
-    def get_location(self):
-        return self.location
-
     def get_credentials(self):
         cred_map = {}
         for cred in self.providercredential_set.all():

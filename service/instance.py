@@ -8,36 +8,23 @@ from djcelery.app import app
 
 from threepio import logger, status_logger
 
-from rtwo.provider import AWSProvider, AWSUSEastProvider,\
-    AWSUSWestProvider, EucaProvider,\
-    OSProvider, OSValhallaProvider
+from rtwo.provider import AWSProvider, EucaProvider, OSProvider
 from rtwo.driver import OSDriver
 from rtwo.machine import Machine
 from rtwo.size import MockSize
 from rtwo.volume import Volume
 
-
-from core.decorators import broken
-from core.query import only_current
-from core.models.instance_source import InstanceSource
-from core.models.application import Application
-from core.models.identity import Identity as CoreIdentity
-from core.models.instance import convert_esh_instance, InstanceAction
-from core.models.size import convert_esh_size
-from core.models.machine import ProviderMachine
-from core.models.provider import AccountProvider, Provider, ProviderInstanceAction
-
 from atmosphere import settings
-from atmosphere.settings import secrets
-
+from core import models
+from core.decorators import broken
+from core.models.instance import convert_esh_instance
+from core.models.instance_source import InstanceSource
+from core.models.size import convert_esh_size
+from service import exceptions
+from service.accounts.openstack import AccountDriver as OSAccountDriver
 from service.cache import get_cached_driver, invalidate_cached_instances
 from service.driver import _retrieve_source
 from service.licensing import _test_license
-from service.exceptions import OverAllocationError, OverQuotaError,\
-    SizeNotAvailable, HypervisorCapacityError, SecurityGroupNotCreated,\
-    VolumeAttachConflict, UnderThresholdError, ActionNotAllowed
-from service import exceptions
-from service.accounts.openstack import AccountDriver as OSAccountDriver
 
 
 RESIZE_TASK_STATES = frozenset(
@@ -45,6 +32,7 @@ RESIZE_TASK_STATES = frozenset(
 
 VALID_INSTANCE_STATES = frozenset(
     ["active", "paused", "stopped", "resized", "soft_deleted"])
+
 
 def _get_size(esh_driver, esh_instance):
     if isinstance(esh_instance.size, MockSize):
@@ -56,22 +44,22 @@ def _get_size(esh_driver, esh_instance):
 
 def _permission_to_act(identity_uuid, action_name, raise_exception=True):
     try:
-        core_identity = CoreIdentity.objects.get(uuid=identity_uuid)
-    except CoreIdentity.DoesNotExist:
+        core_identity = models.Identity.objects.get(uuid=identity_uuid)
+    except models.Identity.DoesNotExist:
         if raise_exception:
             raise
         logger.warn("Identity %s Does Not Exist!" % identity_uuid)
         return False
 
     try:
-        test = ProviderInstanceAction.objects.get(
+        test = models.ProviderInstanceAction.objects.get(
             instance_action__name=action_name,
             provider=core_identity.provider)
         if not test.enabled and raise_exception:
-            raise ActionNotAllowed("This Action is disabled:%s"
-                                   % (action_name,))
+            raise exceptions.ActionNotAllowed("This Action is disabled:%s"
+                                              % (action_name,))
         return test.enabled
-    except ProviderInstanceAction.DoesNotExist:
+    except models.ProviderInstanceAction.DoesNotExist:
         logger.warn(
             "Permission to execute Instance Action: %s not found for Provider: %s. Default Behavior is to allow!" %
             (action_name, core_identity.provider))
@@ -156,7 +144,7 @@ def stop_instance(esh_driver, esh_instance, provider_uuid, identity_uuid, user,
         identity_uuid,
         user)
     invalidate_cached_instances(
-        identity=CoreIdentity.objects.get(uuid=identity_uuid))
+        identity=models.Identity.objects.get(uuid=identity_uuid))
 
 
 def start_instance(esh_driver, esh_instance,
@@ -193,7 +181,7 @@ def start_instance(esh_driver, esh_instance,
         identity_uuid,
         user)
     invalidate_cached_instances(
-        identity=CoreIdentity.objects.get(
+        identity=models.Identity.objects.get(
             uuid=identity_uuid))
 
 
@@ -217,7 +205,7 @@ def suspend_instance(esh_driver, esh_instance,
         identity_uuid,
         user)
     invalidate_cached_instances(
-        identity=CoreIdentity.objects.get(
+        identity=models.Identity.objects.get(
             uuid=identity_uuid))
     return suspended
 
@@ -274,9 +262,27 @@ def remove_network(esh_driver, identity_uuid, remove_network=False):
 
 
 def restore_network(esh_driver, esh_instance, identity_uuid):
-    core_identity = CoreIdentity.objects.get(uuid=identity_uuid)
+    core_identity = models.Identity.objects.get(uuid=identity_uuid)
     network = network_init(core_identity)
     return network
+
+
+def remove_inactive_network(driver):
+    remove_network = True
+    nodes = driver.list_nodes()
+    ACTIVE_STATES = frozenset(["active"])
+    INACTIVE_STATES = frozenset(["stopped", "suspended"])
+
+    for node in nodes:
+        if node.extra.get("status") in ACTIVE_STATES:
+            return
+
+        if node.extra.get("status") in INACTIVE_STATES:
+            remove_network = True
+
+    network_manager = get_network_manager(driver)
+    return network_manager.delete_project_network(username, project_name,
+                                                  remove_network=remove_interface)
 
 
 def restore_instance_port(esh_driver, esh_instance):
@@ -349,7 +355,7 @@ def resize_and_redeploy(esh_driver, esh_instance, core_identity_uuid):
     from service.tasks.driver import wait_for_instance, complete_resize
     from service.deploy import deploy_test
     touch_script = deploy_test()
-    core_identity = CoreIdentity.objects.get(uuid=core_identity_uuid)
+    core_identity = models.Identity.objects.get(uuid=core_identity_uuid)
 
     task_one = wait_for_instance.s(
         esh_instance.id, esh_driver.__class__, esh_driver.provider,
@@ -449,8 +455,7 @@ def restore_ip_chain(esh_driver, esh_instance, redeploy=False,
 
 def admin_capacity_check(provider_uuid, instance_id):
     from service.driver import get_admin_driver
-    from core.models import Provider
-    p = Provider.objects.get(uuid=provider_uuid)
+    p = models.Provider.objects.get(uuid=provider_uuid)
     admin_driver = get_admin_driver(p)
     instance = admin_driver.get_instance(instance_id)
     if not instance:
@@ -481,7 +486,7 @@ def test_capacity(hypervisor_hostname, instance, hypervisor_stats):
         % ("cpu", cpu_used, cpu_needed, cpu_total)
     logger.debug(log_str)
     if cpu_used + cpu_needed > cpu_total:
-        raise HypervisorCapacityError(
+        raise exceptions.HypervisorCapacityError(
             hypervisor_hostname,
             "Hypervisor is over-capacity. %s" %
             log_str)
@@ -494,7 +499,7 @@ def test_capacity(hypervisor_hostname, instance, hypervisor_stats):
         % ("mem", mem_used, mem_needed, mem_total)
     logger.debug(log_str)
     if mem_used + mem_needed > mem_total:
-        raise HypervisorCapacityError(
+        raise exceptions.HypervisorCapacityError(
             hypervisor_hostname,
             "Hypervisor is over-capacity. %s" %
             log_str)
@@ -506,7 +511,7 @@ def test_capacity(hypervisor_hostname, instance, hypervisor_stats):
     log_str = "Resource:%s Used:%s Additional:%s Total:%s"\
         % ("disk", disk_used, disk_needed, disk_total)
     if disk_used + disk_needed > disk_total:
-        raise HypervisorCapacityError(
+        raise exceptions.HypervisorCapacityError(
             hypervisor_hostname,
             "Hypervisor is over-capacity. %s" %
             log_str)
@@ -567,7 +572,7 @@ def shelve_instance(esh_driver, esh_instance,
         identity_uuid,
         user)
     invalidate_cached_instances(
-        identity=CoreIdentity.objects.get(
+        identity=models.Identity.objects.get(
             uuid=identity_uuid))
     return shelved
 
@@ -620,13 +625,13 @@ def offload_instance(esh_driver, esh_instance,
         identity_uuid,
         user)
     invalidate_cached_instances(
-        identity=CoreIdentity.objects.get(
+        identity=models.Identity.objects.get(
             uuid=identity_uuid))
     return offloaded
 
 
 def destroy_instance(identity_uuid, instance_alias):
-    identity = CoreIdentity.objects.get(uuid=identity_uuid)
+    identity = models.Identity.objects.get(uuid=identity_uuid)
     esh_driver = get_cached_driver(identity=identity)
     instance = esh_driver.get_instance(instance_alias)
     # Bail if instance doesnt exist
@@ -668,7 +673,7 @@ def update_status(esh_driver, instance_id, provider_uuid, identity_uuid, user):
     """
     # Grab a new copy of the instance
 
-    if AccountProvider.objects.filter(identity__uuid=identity_uuid):
+    if models.AccountProvider.objects.filter(identity__uuid=identity_uuid):
         esh_instance = admin_get_instance(esh_driver, instance_id)
     else:
         esh_instance = esh_driver.get_instance(instance_id)
@@ -683,7 +688,7 @@ def update_status(esh_driver, instance_id, provider_uuid, identity_uuid, user):
 
 
 def get_core_instances(identity_uuid):
-    identity = CoreIdentity.objects.get(uuid=identity_uuid)
+    identity = models.Identity.objects.get(uuid=identity_uuid)
     driver = get_cached_driver(identity=identity)
     instances = driver.list_instances()
     core_instances = [convert_esh_instance(driver,
@@ -704,7 +709,7 @@ def _pre_launch_validation(
     """
     Used BEFORE launching a volume/instance .. Raise exceptions here to be dealt with by the caller.
     """
-    identity = CoreIdentity.objects.get(uuid=identity_uuid)
+    identity = models.Identity.objects.get(uuid=identity_uuid)
 
     # May raise OverQuotaError or OverAllocationError
     check_quota(username, identity_uuid, size)
@@ -745,7 +750,7 @@ def launch_instance(user, provider_uuid, identity_uuid,
          source_alias,
          size_alias,
          "Request Received"))
-    identity = CoreIdentity.objects.get(uuid=identity_uuid)
+    identity = models.Identity.objects.get(uuid=identity_uuid)
     esh_driver = get_cached_driver(identity=identity)
 
     # May raise Exception("Size not available")
@@ -792,7 +797,7 @@ def _select_and_launch_source(
     """
     Select launch route based on whether boot_source is-a machine/volume
     """
-    identity = CoreIdentity.objects.get(uuid=identity_uuid)
+    identity = models.Identity.objects.get(uuid=identity_uuid)
     if boot_source.is_volume():
         # NOTE: THIS route works when launching an EXISTING volume ONLY
         #      to CREATE a new bootable volume (from an existing volume/image/snapshot)
@@ -966,15 +971,15 @@ def _pre_launch_instance_kwargs(
     NOTE: For some providers (Like OpenStack) provisioning
     """
     if not token:
-        token = _get_token()
+        token = str(uuid.uuid4())
     if not username:
         username = _get_username(driver, identity)
     if not password:
-        password = _get_password(username)
+        password = str(uuid.uuid4())
     return {
         "token": token,
         "username": username,
-        "password": password,
+        "password": password
     }
 
 
@@ -1047,16 +1052,6 @@ def _get_username(driver, core_identity):
         username = core_identity.created_by.username
 
 
-def _get_token():
-    return generate_uuid4()
-
-
-def _get_password(username):
-    return generate_uuid4()
-
-
-def generate_uuid4():
-    return str(uuid.uuid4())
 ################################
 
 
@@ -1064,15 +1059,15 @@ def check_size(esh_driver, size_alias, provider_uuid):
     try:
         esh_size = esh_driver.get_size(size_alias)
         if not convert_esh_size(esh_size, provider_uuid).active():
-            raise SizeNotAvailable()
+            raise exceptions.SizeNotAvailable()
         return esh_size
     except:
-        raise SizeNotAvailable()
+        raise exceptions.SizeNotAvailable()
 
 
 def get_boot_source(username, identity_uuid, source_identifier):
     try:
-        identity = CoreIdentity.objects.get(
+        identity = models.Identity.objects.get(
             uuid=identity_uuid)
         driver = get_cached_driver(identity=identity)
         sources = InstanceSource.current_sources()
@@ -1080,9 +1075,9 @@ def get_boot_source(username, identity_uuid, source_identifier):
             provider=identity.provider,
             identifier=source_identifier)
         return boot_source
-    except CoreIdentity.DoesNotExist:
+    except models.Identity.DoesNotExist:
         raise Exception("Identity %s does not exist" % identity_uuid)
-    except InstanceSource.DoesNotExist:
+    except models.InstanceSource.DoesNotExist:
         raise Exception("No boot source found with identifier %s"
                         % source_identifier)
 
@@ -1094,8 +1089,8 @@ def check_application_threshold(
         boot_source):
     """
     """
-    core_identity = CoreIdentity.objects.get(uuid=identity_uuid)
-    application = Application.objects.filter(
+    core_identity = models.Identity.objects.get(uuid=identity_uuid)
+    application = models.Application.objects.filter(
         versions__machines__instance_source__identifier=boot_source.identifier,
         versions__machines__instance_source__provider=core_identity.provider).distinct().get()
     threshold = application.get_threshold()
@@ -1103,13 +1098,15 @@ def check_application_threshold(
         return
     # NOTE: Should be MB to MB test
     if esh_size.ram < threshold.memory_min:
-        raise UnderThresholdError("This application requires >=%s GB of RAM."
-                                  " Please re-launch with a larger size."
-                                  % int(threshold.memory_min / 1024))
+        raise exceptions.UnderThresholdError(
+            "This application requires >=%s GB of RAM."
+            " Please re-launch with a larger size."
+            % int(threshold.memory_min / 1024))
     if esh_size.disk < threshold.storage_min:
-        raise UnderThresholdError("This application requires >=%s GB of Disk."
-                                  " Please re-launch with a larger size."
-                                  % threshold.storage_min)
+        raise exceptions.UnderThresholdError(
+            "This application requires >=%s GB of Disk."
+            " Please re-launch with a larger size."
+            % threshold.storage_min)
     return
 
 
@@ -1119,10 +1116,10 @@ def _test_for_licensing(esh_machine, identity):
     Returns True OR raise Exception with reason for failure
     """
     try:
-        core_machine = ProviderMachine.objects.get(
+        core_machine = models.ProviderMachine.objects.get(
             instance_source__identifier=esh_machine.id,
             instance_source__provider=identity.provider)
-    except ProviderMachine.DoesNotExist:
+    except models.ProviderMachine.DoesNotExist:
         raise Exception(
             "Execution in workflow error! Trying to launch a provider machine, but it has not been added to the DB (convert_esh_machine is broken?)")
     app_version = core_machine.application_version
@@ -1146,12 +1143,12 @@ def check_quota(username, identity_uuid, esh_size, resuming=False):
                                                   identity_uuid,
                                                   esh_size, resuming=resuming)
     if over_quota and settings.ENFORCING:
-        raise OverQuotaError(resource, requested, used, allowed)
+        raise exceptions.OverQuotaError(resource, requested, used, allowed)
     (over_allocation, time_diff) =\
         check_over_allocation(username,
                               identity_uuid)
     if over_allocation and settings.ENFORCING:
-        raise OverAllocationError(time_diff)
+        raise exceptions.OverAllocationError(time_diff)
 
 
 def security_group_init(core_identity, max_attempts=3):
@@ -1171,7 +1168,7 @@ def security_group_init(core_identity, max_attempts=3):
         if security_group:
             return security_group
         time.sleep(2**attempt)
-    raise SecurityGroupNotCreated()
+    raise exceptions.SecurityGroupNotCreated()
 
 
 def keypair_init(core_identity):
@@ -1251,7 +1248,7 @@ arg = '{
  }
 }'""" % (instance_service_url, settings.SERVER_URL,
          instance_token, instance_name, username,
-         secrets.ATMOSPHERE_VNC_LICENSE, instance_password)
+         settings.secrets.ATMOSPHERE_VNC_LICENSE, instance_password)
 
     init_script_file = os.path.join(
         settings.PROJECT_ROOT,
@@ -1289,7 +1286,7 @@ def update_instance_metadata(esh_driver, esh_instance, data={}, replace=True):
         previous = esh_driver._connection.ex_get_metadata(esh_instance)
         current = esh_driver._connection.ex_write_metadata(
             esh_instance,
-            data,
+            metadata,
             replace_metadata=replace)
         logger.info("%s update_metadata: previous %s", esh_instance.id, previous)
         logger.info("%s update_metadata: data %s", esh_instance.id, data)
@@ -1357,8 +1354,8 @@ def _repair_instance_networking(
         deploy_init_to, deploy_failed, update_metadata
     logger.info("Instance %s needs to create and attach port instead"
                 % esh_instance.id)
-    core_identity = CoreIdentity.objects.get(uuid=identity_uuid)
-    provider = Provider.objects.get(uuid=provider_uuid)
+    core_identity = models.Identity.objects.get(uuid=identity_uuid)
+    provider = models.Provider.objects.get(uuid=provider_uuid)
     logger.info("Attaching interface manually, Instance %s" %
                 esh_instance.id)
     attached_intf = _create_and_attach_port(provider, esh_driver, esh_instance,
@@ -1415,7 +1412,7 @@ def _check_volume_attachment(driver, instance):
             continue
         for attachment in attachment_set:
             if instance.alias == attachment['serverId']:
-                raise VolumeAttachConflict(instance.alias, vol.alias)
+                raise exceptions.VolumeAttachConflict(instance.alias, vol.alias)
     return False
 
 
@@ -1573,6 +1570,12 @@ def soft_reboot(driver, instance):
     return _reboot(driver, instance, reboot_type="SOFT")
 
 
+def _reclaim_network(driver, _instance):
+    pass
+
+def _reclaim_ip(driver, _instance):
+    pass
+
 # reclaim ip, suspend, remove network, update, invalidate
 def suspend(driver, instance):
     _instance = driver.ex_get_node_details(instance.provider_alias)
@@ -1587,4 +1590,72 @@ def suspend(driver, instance):
         raise exceptions.InvalidState(
             "A task with state `%s` is currently in progress." % task_state)
 
-    return driver.ex_suspend_node(_instance)
+    success = driver.ex_suspend_node(_instance)
+
+    if not success:
+        return False
+
+    _reclaim_ip(driver, _instance)
+    _reclaim_network(driver, _instance)
+    _invalidate_cache(driver, _instance)
+    _update_state(driver, _instance)
+
+#
+#def deploy(driver, instance):
+#    return redeploy_init(driver, instance, countdown=None)
+#
+#
+
+#def mount_volume(driver, instance, volume):
+#    return task.mount_volume_task(driver,
+#                                    instance.alias,
+#                                    volume_id, device,
+#                                    mount_location)
+
+
+#def unmount_volume(driver, instance, volume):
+#    return task.unmount_volume_task(driver,
+#                                    instance.alias,
+#                                    volume_id, device,
+#                                    mount_location)
+
+
+# restore network, aquire ip, (repair instance?), launch, run deploy
+# update stauts, invalidate
+# TODO: depends upon extension not supported in libcloud
+def start(driver, instance):
+    _instance = driver.ex_get_node_details.(instance.provider_alias)
+    return driver.ex_start_node(_instance)
+
+
+# @invalidate_cache
+# @remove_network
+# @update_instance
+# TODO: depends upon extension not supported in libcloud
+def stop(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    return driver.ex_stop_node(_instance)
+
+
+# up status log, reclaim ip, remove network, update status, invalidate cache
+# TODO: depends upon extension not supported in libcloud
+def shelve(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    return driver.ex_shelve_node(_instance)
+
+
+# check quota, update status, check capacity, restore network,
+# restore_ip_chain, (wait for unshelve?), redeploy
+# TODO: depends upon extension not supported in libcloud
+def unshelve(driver, instance):
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    return driver._connection.ex_unshelve_node(_instance)
+
+
+# TODO: depends upon extension not supported in libcloud
+def shelve_offload(driver, instance):
+    """
+    Remove a shelved instance
+    """
+    _instance = driver.ex_get_node_details(instance.provider_alias)
+    return driver.ex_shelve_offload_instance(_instance)

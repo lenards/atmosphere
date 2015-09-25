@@ -87,8 +87,8 @@ class AccountDriver(CachedAccountDriver):
         admin_identity = provider.admin
         admin_creds = admin_identity.get_credentials()
         self.admin_driver = get_esh_driver(admin_identity)
-        admin_creds = self._libcloud_to_openstack(admin_creds)
-        all_creds = {'location': provider.get_location()}
+        admin_creds = self.parse_credentials(admin_creds)
+        all_creds = {'location': provider.location}
         all_creds.update(admin_creds)
         all_creds.update(provider_creds)
         return all_creds
@@ -235,7 +235,7 @@ class AccountDriver(CachedAccountDriver):
     def add_rules_to_security_groups(self, core_identity_list,
                                      security_group_name, rules_list):
         for identity in core_identity_list:
-            creds = self.parse_identity(identity)
+            creds = self.parse_credentials(identity.get_credentials())
             sec_group = self.user_manager.find_security_group(
                 creds["username"], creds["password"], creds["tenant_name"],
                 security_group_name)
@@ -280,17 +280,19 @@ class AccountDriver(CachedAccountDriver):
         return keypair
 
     def rebuild_security_groups(self, core_identity, rules_list=None):
-        creds = self.parse_identity(core_identity)
+        creds = self.parse_credentials(core_identity.get_credentials())
         if not rules_list:
             rules_list = self.MASTER_RULES_LIST
         return self.user_manager.build_security_group(
             creds["username"], creds["password"], creds["tenant_name"],
             creds["tenant_name"], rules_list, rebuild=True)
 
-    def parse_identity(self, core_identity):
-        identity_creds = self._libcloud_to_openstack(
-            core_identity.get_credentials())
-        return identity_creds
+    def parse_credentials(self, credentials):
+        new_credentials = {}
+        new_credentials["username"] = credentials.get("key")
+        new_credentials["password"] = credentials.get("secret")
+        new_credentials["tenant_name"] = credentials.get("ex_tenant_name")
+        return new_credentials
 
     def clean_credentials(self, credential_dict):
         """
@@ -344,7 +346,7 @@ class AccountDriver(CachedAccountDriver):
         return True
 
     def delete_security_group(self, identity):
-        identity_creds = self.parse_identity(identity)
+        identity_creds = self.parse_credentials(identity.get_credentials())
         project_name = identity_creds["tenant_name"]
         project = self.user_manager.keystone.tenants.find(name=project_name)
         sec_group_r = self.network_manager.neutron.list_security_groups(
@@ -356,7 +358,7 @@ class AccountDriver(CachedAccountDriver):
 
     def delete_network(self, identity, remove_network=True):
         # Core credentials need to be converted to openstack names
-        identity_creds = self.parse_identity(identity)
+        identity_creds = self.parse_credentials(identity.get_credentials())
         username = identity_creds["username"]
         project_name = identity_creds["tenant_name"]
         # Convert from libcloud names to openstack client names
@@ -365,7 +367,7 @@ class AccountDriver(CachedAccountDriver):
 
     def create_network(self, identity):
         # Core credentials need to be converted to openstack names
-        identity_creds = self.parse_identity(identity)
+        identity_creds = self.parse_credentials(identity.get_credentials())
         username = identity_creds["username"]
         password = identity_creds["password"]
         project_name = identity_creds["tenant_name"]

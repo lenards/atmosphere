@@ -7,7 +7,7 @@ class ProviderSerializer(serializers.ModelSerializer):
     type = serializers.SlugRelatedField(
         slug_field='name',
         queryset=ProviderType.objects.all())
-    location = serializers.CharField(source='get_location')
+    location = serializers.CharField()
     id = serializers.CharField(source='uuid')
 
     class Meta:
