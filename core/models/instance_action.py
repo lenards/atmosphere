@@ -122,6 +122,9 @@ class InstanceAction(models.Model):
             # Shelved instances can be unshelved or offloaded + <Basic Actions>
             all_actions.append('Shelve Offload')
             all_actions.append('Unshelve')
+            # a shelved instance should not be rebooted
+            all_actions.remove('Reboot')
+            all_actions.remove('Hard Reboot')
 
         if len(all_actions) == 2:
             logger.debug(
