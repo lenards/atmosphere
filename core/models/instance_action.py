@@ -115,8 +115,9 @@ class InstanceAction(models.Model):
             # Suspended instances can be resumed + <Basic Actions>
             all_actions.append('Resume')
         elif last_status == "shutoff":
-            # Suspended instances can be started + <Basic Actions>
+            # Stopped instances can be started, imaged + <Basic Actions>
             all_actions.append('Start')
+            all_actions.append('Imaging')
         elif last_status == "shelved":
             # Shelved instances can be unshelved or offloaded + <Basic Actions>
             all_actions.append('Shelve Offload')
